@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { COOKIE_NAME, verifyToken } from "@/lib/gate";
-import { startRun } from "@/lib/apify";
+import { startRun, FAST_LIMIT, SEARCH_LIMIT } from "@/lib/apify";
 import { USE_FIXTURES } from "@/lib/fixtures";
 
 export const runtime = "nodejs";
@@ -32,13 +32,27 @@ export async function POST(req: Request) {
     return NextResponse.json({
       runId: `fixture-${encodeURIComponent(keyword)}`,
       datasetId: `fixture-${encodeURIComponent(keyword)}`,
+      fastRunId: `fixture-${encodeURIComponent(keyword)}`,
+      fastDatasetId: `fixture-${encodeURIComponent(keyword)}`,
       keyword,
     });
   }
 
   try {
-    const { runId, datasetId } = await startRun(keyword);
-    return NextResponse.json({ runId, datasetId, keyword });
+    // Two runs in parallel: a small one to paint the feed ~10s sooner, and
+    // the full one to backfill. They re-sample rather than paginate, so
+    // merging them also yields more unique reels than either alone.
+    const [fast, full] = await Promise.all([
+      startRun(keyword, FAST_LIMIT),
+      startRun(keyword, SEARCH_LIMIT),
+    ]);
+    return NextResponse.json({
+      runId: full.runId,
+      datasetId: full.datasetId,
+      fastRunId: fast.runId,
+      fastDatasetId: fast.datasetId,
+      keyword,
+    });
   } catch (err) {
     console.error("[search/start]", err);
     return NextResponse.json({ error: "apify_start_failed" }, { status: 502 });

@@ -115,6 +115,8 @@ export type PollResponse =
       pool: Reel[];
       /** Dataset ids so the JIT filter can re-read comments server-side. */
       datasets: string;
+      /** Painted from the fast run: scores are 0 and render as pending. */
+      provisional?: boolean;
       meta: SearchMeta;
     }
   | { phase: "empty"; suggestions: string[] }

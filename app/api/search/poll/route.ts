@@ -49,6 +49,9 @@ export async function GET(req: Request) {
   const keyword = url.searchParams.get("keyword") ?? "";
   const original = url.searchParams.get("original") || keyword;
   const datasets = csv(url.searchParams.get("datasets"));
+  const fastRunId = url.searchParams.get("fastRunId") ?? "";
+  const fastDatasetId = url.searchParams.get("fastDatasetId") ?? "";
+  const painted = url.searchParams.get("painted") === "1";
   const queue = csv(url.searchParams.get("queue"));
   const used = csv(url.searchParams.get("used"));
   const usedList = used.length ? used : [keyword];
@@ -76,6 +79,21 @@ export async function GET(req: Request) {
   }
 
   if (status.phase === "running") {
+    // The small parallel run usually finishes ~10s before the full one.
+    // Paint from it the moment it lands rather than sitting on a spinner.
+    if (!painted && fastRunId && fastDatasetId) {
+      try {
+        const fast = await getRunStatus(fastRunId, fastDatasetId);
+        if (fast.phase === "succeeded") {
+          const items = await getDatasetItems(fastDatasetId);
+          if (items.length > 0) {
+            return finish(items, [fastDatasetId], usedList, original, true);
+          }
+        }
+      } catch {
+        // Fast run is an optimisation only — never fail the search on it.
+      }
+    }
     return NextResponse.json({
       phase: "pulling",
       found: status.itemCount,
@@ -94,7 +112,9 @@ export async function GET(req: Request) {
   }
 
   // succeeded
-  const allDatasets = [...new Set([...datasets, datasetId])];
+  // Merge both samples. The runs are not stably ordered, so the fast run
+  // contributes reels the full run may not have returned at all.
+  const allDatasets = [...new Set([...datasets, datasetId, fastDatasetId].filter(Boolean))];
   let collected: ApifyItem[] = [];
   try {
     const pulls = await Promise.all(allDatasets.map((d) => getDatasetItems(d)));
@@ -201,7 +221,12 @@ async function finish(
   datasets: string[],
   usedList: string[],
   original: string,
-  partialFlag = false
+  /**
+   * True when painting from the fast run only. The median over 12
+   * popularity-skewed reels is badly wrong, so scores are zeroed and the UI
+   * renders the multiplier as pending until the full set lands.
+   */
+  provisional = false
 ): Promise<NextResponse> {
   const { items, metric, pulled, dropped } = normalize(collected as unknown[]);
 
@@ -235,10 +260,14 @@ async function finish(
     .filter((r) => keptCodes.has(r.shortCode))
     .map((r) => ({ ...r, confidence: verdicts.get(r.shortCode)?.confidence ?? 0.5 }));
 
+  const strip = (r: (typeof results)[number]) =>
+    provisional ? { ...r, score: 0 } : r;
+
   return NextResponse.json({
     phase: "done",
-    results,
-    pool: ordered.slice(FIRST_WINDOW),
+    results: results.map(strip),
+    pool: ordered.slice(FIRST_WINDOW).map(strip),
+    provisional,
     datasets: datasets.join(","),
     meta: {
       pulled,
@@ -247,7 +276,7 @@ async function finish(
       medianPlays,
       metric,
       filtered,
-      partial: partialFlag,
+      partial: provisional,
       keywordsUsed: usedList,
     },
   } satisfies PollResponse);

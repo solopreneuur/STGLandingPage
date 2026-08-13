@@ -8,6 +8,20 @@ const BASE = "https://api.apify.com/v2";
 export const SEARCH_LIMIT = Number(process.env.SEARCH_LIMIT ?? 50);
 
 /**
+ * Size of the fast first run, fired in parallel with the full one.
+ *
+ * Measured: searchLimit 12 -> 18.3s, searchLimit 50 -> 28.1s. Roughly 15s of
+ * that is fixed container startup, so the marginal cost is ~0.25s per item
+ * and splitting further buys nothing — you re-pay the 15s floor every time.
+ *
+ * The runs are NOT stably ordered (they returned different top items), so the
+ * fast run is a separate sample rather than a prefix. That is why its results
+ * are merged rather than treated as page 1, and why the multiplier waits for
+ * the full set: a median over 12 popularity-skewed reels is badly wrong.
+ */
+export const FAST_LIMIT = Number(process.env.FAST_LIMIT ?? 12);
+
+/**
  * The actor's input contract, verified against the live build's input schema.
  *  - `search` is the keyword field (NOT `keyword`/`query`)
  *  - `searchLimit` is the cap (NOT `resultsLimit` — that key does not exist
@@ -15,11 +29,11 @@ export const SEARCH_LIMIT = Number(process.env.SEARCH_LIMIT ?? 50);
  *  - `searchType` DEFAULTS TO "place"; omitting it returns places, not reels
  *  - `liveSearch: true` returns a different dataset shape — keep it false
  */
-export function buildInput(search: string) {
+export function buildInput(search: string, limit = SEARCH_LIMIT) {
   return {
     search,
     searchType: "popular" as const,
-    searchLimit: SEARCH_LIMIT,
+    searchLimit: limit,
     liveSearch: false,
     enhanceUserSearchWithFacebookPage: false,
   };
@@ -30,11 +44,11 @@ export interface StartedRun {
   datasetId: string;
 }
 
-export async function startRun(search: string): Promise<StartedRun> {
+export async function startRun(search: string, limit = SEARCH_LIMIT): Promise<StartedRun> {
   const res = await fetch(`${BASE}/acts/${ACTOR}/runs?token=${TOKEN}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(buildInput(search)),
+    body: JSON.stringify(buildInput(search, limit)),
   });
   if (!res.ok) {
     throw new Error(`apify_start_failed: ${res.status} ${await res.text()}`);

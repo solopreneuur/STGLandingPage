@@ -64,13 +64,20 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
       setView({ k: "failed" });
       return;
     }
-    const start = (await res.json()) as { runId: string; datasetId: string };
+    const start = (await res.json()) as {
+      runId: string;
+      datasetId: string;
+      fastRunId?: string;
+      fastDatasetId?: string;
+    };
 
     // Widening spans multiple polls, so all state rides in the query string
     // and is echoed straight back from each response.
     let params = new URLSearchParams({
       runId: start.runId,
       datasetId: start.datasetId,
+      fastRunId: start.fastRunId ?? "",
+      fastDatasetId: start.fastDatasetId ?? "",
       keyword: q,
       original: q,
       datasets: "",
@@ -112,6 +119,19 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
           });
           break;
         case "done":
+          if (data.provisional) {
+            // Feed is live now; keep polling so the full run can supply the
+            // real median and reveal multipliers.
+            setView({
+              k: "done",
+              results: data.results,
+              pool: data.pool,
+              datasets: data.datasets,
+              meta: data.meta,
+            });
+            params.set("painted", "1");
+            break;
+          }
           saveResults({
             keyword: q,
             results: data.results,

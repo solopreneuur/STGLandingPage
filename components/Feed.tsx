@@ -229,12 +229,22 @@ function Slide({
 
       {/* Multiplier is the product's whole point, so it gets the loudest slot */}
       <div className="absolute top-16 right-4 flex flex-col items-end gap-1">
-        <span className="rounded-lg bg-accent px-3 py-1.5 font-num text-[1.35rem] leading-none text-black shadow-accent">
-          {formatMultiplier(reel.score)}
-        </span>
-        <span className="rounded bg-black/55 px-2 py-0.5 text-[0.62rem] text-white/70 backdrop-blur-sm">
-          vs {formatPlays(medianPlays)} median
-        </span>
+        {reel.score > 0 ? (
+          <span className="rounded-lg bg-accent px-3 py-1.5 font-num text-[1.35rem] leading-none text-black shadow-accent">
+            {formatMultiplier(reel.score)}
+          </span>
+        ) : (
+          /* Painted from the fast run: the median is not final yet, and a
+             wrong multiplier is worse than a visibly pending one. */
+          <span className="animate-pulse rounded-lg bg-white/15 px-3 py-1.5 font-num text-[1.35rem] leading-none text-white/40">
+            ·
+          </span>
+        )}
+        {medianPlays > 0 && (
+          <span className="rounded bg-black/55 px-2 py-0.5 text-[0.62rem] text-white/70 backdrop-blur-sm">
+            vs {formatPlays(medianPlays)} median
+          </span>
+        )}
       </div>
 
       <div className="absolute inset-x-0 bottom-0 p-5 pb-8">
