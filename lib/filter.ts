@@ -20,6 +20,10 @@ Judge holistically from the whole picture: caption, who posted it, and how
 people actually engage in the comments. You are reading BEHAVIOUR, not
 keywords. Do not pattern-match on single words.
 
+An enormous play count is NOT evidence of quality. Reach and craft come apart
+constantly, and the whole point of this tool is to surface the reels a creator
+could actually learn from.
+
 Red flags that this is mass-market noise:
 - Follow-begging ("I am your new follower", "followed you", follow-for-follow)
 - Gift/emoji walls with no words (🎁🎁🎁, 🔥🔥🔥 as the entire comment)
@@ -28,6 +32,18 @@ Red flags that this is mass-market noise:
 - The same commenter appearing repeatedly
 - Walls of generic praise with zero likes and zero topical content
 - Comments that engage with nothing specific about the actual video
+
+Red flags that this is aggregator or repost content rather than a creator:
+- Generic reach-hashtag stacks (#foryou #viral #reels #explore #photooftheday)
+  attached to content they do not describe
+- The caption's main job is "follow @handle for more" rather than saying
+  anything about the video
+- An account that posts undifferentiated viral clips from many niches, with no
+  point of view of its own
+- Content credited to nobody that clearly originated elsewhere
+- Low engagement DEPTH against huge reach: tens of millions of plays with a
+  comments/plays ratio near zero and comment threads that are pure emoji. That
+  pattern is distribution, not resonance, and there is nothing to learn from it.
 
 Signals it IS useful evidence:
 - Comments reference something specific that happened in the video
@@ -66,10 +82,25 @@ const SCHEMA = {
 } as const;
 
 function compact(items: ApifyItem[]) {
-  return items.map((i) => ({
+  return items.map((i) => {
+    // Reach on its own says nothing. Depth relative to reach is what separates
+    // a reel people actually engaged with from one an algorithm merely pushed,
+    // and neither ratio was reaching the model before.
+    const plays = i.videoPlayCount ?? i.videoViewCount ?? 0;
+    const rate = (n: number | null | undefined) =>
+      plays > 0 ? Number(((n ?? 0) / plays).toFixed(5)) : null;
+
+    return {
     shortCode: i.shortCode,
     account: [i.ownerUsername, i.ownerFullName].filter(Boolean).join(" / "),
     caption: (i.caption ?? "").slice(0, CAPTION_CHARS),
+    // A generic reach stack (#foryou #viral #reels) is one of the loudest
+    // aggregator tells there is, and it was being dropped entirely.
+    hashtags: (i.hashtags ?? []).slice(0, 12),
+    plays,
+    likesPerPlay: rate(i.likesCount),
+    commentsPerPlay: rate(i.commentsCount),
+    seconds: i.videoDuration ?? null,
     firstComment: (i.firstComment ?? "").slice(0, COMMENT_CHARS),
     comments: (i.latestComments ?? []).slice(0, COMMENTS_PER_ITEM).map((c) => ({
       // commenter username is included so repeated-commenter patterns are visible
@@ -77,7 +108,8 @@ function compact(items: ApifyItem[]) {
       text: (c.text ?? "").slice(0, COMMENT_CHARS),
       likes: c.likesCount ?? 0,
     })),
-  }));
+    };
+  });
 }
 
 export interface FilterResult {

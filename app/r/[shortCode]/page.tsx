@@ -43,8 +43,10 @@ export async function generateMetadata({
 
 export default async function ReelPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ shortCode: string }>;
+  searchParams: Promise<{ deep?: string }>;
 }) {
   // Breakdowns are FREE in v2.1. `paid` only controls whether the
   // "Go deeper" CTA offers the synthesis or reveals it.
@@ -52,6 +54,8 @@ export default async function ReelPage({
   const paid = verifyToken(jar.get(COOKIE_NAME)?.value);
 
   const { shortCode } = await params;
+  // Set by /api/unlock straight after payment.
+  const { deep } = await searchParams;
 
   // Resolve server-side. sessionStorage is per-tab, so a shared link, a new
   // tab, a bookmark or a restart previously landed on "That reel isn't in
@@ -68,6 +72,7 @@ export default async function ReelPage({
       initialReel={hit?.reel ?? null}
       initialKeyword={hit?.slug ?? ""}
       initialBreakdown={breakdown}
+      autoDeep={deep === "1"}
     />
   );
 }

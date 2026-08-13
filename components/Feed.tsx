@@ -5,7 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import type { Reel, SearchMeta } from "@/lib/types";
 import { formatMultiplier, formatPlays } from "@/lib/score";
 import { thumbSrc, videoSrc, VIDEO_ENABLED } from "@/lib/thumb";
-import { prefetchBreakdown } from "@/lib/session-cache";
+import {
+  prefetchBreakdown,
+  saveActiveIndex,
+  getActiveIndex,
+} from "@/lib/session-cache";
 import GoDeeper from "./GoDeeper";
 
 /**
@@ -51,12 +55,39 @@ export default function Feed({
   const inflight = useRef(false);
   const toppedUp = useRef(0);
 
-  // A new search replaces both lists.
+  const prevKeyword = useRef(keyword);
+  const restored = useRef(false);
+
+  // A new search replaces both lists — and only a NEW NICHE returns to the
+  // top. This effect also runs on every remount, so resetting unconditionally
+  // is what sent the user back to slide 1 every time they came back from a reel.
   useEffect(() => {
     setSlides(results);
     setRemaining(pool);
-    setActive(0);
-  }, [results, pool]);
+    if (prevKeyword.current !== keyword) {
+      prevKeyword.current = keyword;
+      restored.current = true; // a fresh niche has no position to restore
+      setActive(0);
+      saveActiveIndex(keyword, 0);
+    }
+  }, [results, pool, keyword]);
+
+  // Restore the slide they left off on, once, after the slides exist.
+  useEffect(() => {
+    if (restored.current || slides.length === 0) return;
+    restored.current = true;
+    const i = getActiveIndex(keyword);
+    if (i <= 0 || i >= slides.length) return;
+    const el = scroller.current?.querySelector(`[data-i="${i}"]`);
+    // Instant, never smooth: an animated scroll on mount reads as the page
+    // running away from you.
+    el?.scrollIntoView({ behavior: "auto" });
+    setActive(i);
+  }, [slides.length, keyword]);
+
+  useEffect(() => {
+    saveActiveIndex(keyword, active);
+  }, [keyword, active]);
 
   /**
    * Judge the next window before the user reaches it. Slides are only ever

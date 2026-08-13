@@ -151,6 +151,40 @@ export function prefetchBreakdown(reel: {
   inflightPrefetch.set(reel.shortCode, p);
 }
 
+/**
+ * Which slide the user was on, per niche.
+ *
+ * Feed remounts when they come back from a reel — App Router does not preserve
+ * component state across that navigation — so without this they land back at
+ * slide 1 and have to scroll to where they were.
+ */
+const ACTIVE_KEY = "stg_active";
+
+export function saveActiveIndex(keyword: string, index: number): void {
+  if (typeof window === "undefined" || !keyword) return;
+  try {
+    const raw = sessionStorage.getItem(ACTIVE_KEY);
+    const map = raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    map[keyword] = index;
+    sessionStorage.setItem(ACTIVE_KEY, JSON.stringify(map));
+  } catch {
+    // Storage full or blocked; losing the position is not worth an error.
+  }
+}
+
+export function getActiveIndex(keyword: string): number {
+  if (typeof window === "undefined" || !keyword) return 0;
+  try {
+    const raw = sessionStorage.getItem(ACTIVE_KEY);
+    if (!raw) return 0;
+    const map = JSON.parse(raw) as Record<string, number>;
+    const i = map[keyword];
+    return Number.isFinite(i) && i > 0 ? i : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /** Mark a keyword as the most recently viewed feed without rewriting it. */
 export function markLastViewed(keyword: string): void {
   try {

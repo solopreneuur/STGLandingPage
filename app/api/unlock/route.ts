@@ -27,14 +27,28 @@ function originOf(req: Request): string {
   return process.env.NEXT_PUBLIC_SITE_URL || "https://studythegame.app";
 }
 
-function decodeRef(ref: string | null | undefined): string | null {
-  if (!ref) return null;
+/**
+ * "<niche>" or "<niche>|<shortCode>".
+ *
+ * The short code is what lets someone who paid from inside a reel land back on
+ * that reel rather than at the top of the feed, having to find it again.
+ */
+function decodeRef(
+  ref: string | null | undefined
+): { niche: string | null; shortCode: string | null } {
+  const none = { niche: null, shortCode: null };
+  if (!ref) return none;
   try {
     const b64 = ref.replace(/-/g, "+").replace(/_/g, "/");
-    const s = Buffer.from(b64, "base64").toString("utf8").trim();
-    return s.length >= 2 && s.length <= 60 ? s : null;
+    const raw = Buffer.from(b64, "base64").toString("utf8").trim();
+    const [n, code] = raw.split("|");
+    const niche = n && n.length >= 2 && n.length <= 60 ? n : null;
+    // Instagram short codes are short and alphanumeric; anything else is not
+    // one, and this value goes straight into a redirect path.
+    const shortCode = code && /^[A-Za-z0-9_-]{5,20}$/.test(code) ? code : null;
+    return { niche, shortCode };
   } catch {
-    return null;
+    return none;
   }
 }
 
@@ -81,8 +95,12 @@ export async function GET(req: Request) {
 
     // The niche the user typed before paying, carried through Stripe as a
     // backup to localStorage.
-    const niche = decodeRef(session.client_reference_id);
-    const dest = niche ? `/?n=${encodeURIComponent(niche)}` : "/";
+    const { niche, shortCode } = decodeRef(session.client_reference_id);
+    const dest = shortCode
+      ? `/r/${shortCode}?deep=1`
+      : niche
+        ? `/?n=${encodeURIComponent(niche)}`
+        : "/";
 
     const res = NextResponse.redirect(new URL(dest, SITE), 307);
     // Store the Stripe session id itself, not a random token: when auth ships

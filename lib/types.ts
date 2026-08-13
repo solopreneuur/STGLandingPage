@@ -35,6 +35,11 @@ export const ApifyItemSchema = z
     latestComments: z.array(ApifyCommentSchema).nullish(),
     commentsCount: z.number().nullish(),
     likesCount: z.number().nullish(),
+    // Both survive .passthrough() at runtime, but the audience filter needs
+    // them declared: a generic reach-hashtag stack is one of the strongest
+    // aggregator tells, and duration separates a real cut from a slideshow.
+    hashtags: z.array(z.string()).nullish(),
+    videoDuration: z.number().nullish(),
   })
   .passthrough();
 

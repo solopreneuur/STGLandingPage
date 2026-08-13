@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Reel } from "@/lib/types";
 import Rich from "./Rich";
 
@@ -28,13 +28,20 @@ export default function GoDeeper({
   reels,
   paid,
   paymentLink,
+  shortCode,
+  autoOpen = false,
 }: {
   keyword: string;
   reels: Reel[];
   paid: boolean;
   paymentLink: string;
+  /** Set on a reel page, so paying returns here instead of to the feed. */
+  shortCode?: string;
+  /** True right after purchase: open the synthesis instead of asking again. */
+  autoOpen?: boolean;
 }) {
   const [state, setState] = useState<State>({ s: "idle" });
+  const started = useRef(false);
 
   const run = useCallback(async () => {
     setState({ s: "loading" });
@@ -51,13 +58,23 @@ export default function GoDeeper({
     }
   }, [keyword, reels]);
 
-  // Carry the niche through Stripe so they land back on the same feed.
-  const ref = Buffer.from(keyword, "utf8")
+  // Carry the niche AND the reel through Stripe. Landing back on the feed
+  // after paying from inside a reel loses the thing they were reading, and
+  // makes them find it again to see what they just bought.
+  const ref = Buffer.from(shortCode ? `${keyword}|${shortCode}` : keyword, "utf8")
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
   const checkout = `${paymentLink}${paymentLink.includes("?") ? "&" : "?"}client_reference_id=${ref}`;
+
+  // Straight back from Stripe: run it immediately rather than showing a
+  // button they have already paid to press.
+  useEffect(() => {
+    if (!autoOpen || !paid || started.current) return;
+    started.current = true;
+    void run();
+  }, [autoOpen, paid, run]);
 
   if (!paid) {
     return (

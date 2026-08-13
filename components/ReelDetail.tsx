@@ -29,6 +29,7 @@ export default function ReelDetail({
   initialReel = null,
   initialKeyword = "",
   initialBreakdown = null,
+  autoDeep = false,
 }: {
   shortCode: string;
   paid: boolean;
@@ -39,6 +40,8 @@ export default function ReelDetail({
   initialKeyword?: string;
   /** Server-resolved breakdown, so a shared link renders without a round trip. */
   initialBreakdown?: Breakdown | null;
+  /** Arrived straight from a successful payment — reveal the synthesis. */
+  autoDeep?: boolean;
 }) {
   const router = useRouter();
 
@@ -282,6 +285,8 @@ export default function ReelDetail({
                 reels={getSearch(keyword)?.results ?? []}
                 paid={paid}
                 paymentLink={paymentLink}
+                shortCode={shortCode}
+                autoOpen={autoDeep}
               />
             </div>
 
