@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Shell from "./Shell";
 
 /**
  * Niche-first funnel.
@@ -44,7 +45,7 @@ export default function Landing({ paymentLink }: { paymentLink: string }) {
     : paymentLink;
 
   return (
-    <>
+    <Shell>
       <header className="border-b border-hair pt-1.5 pb-5">
         <span className="font-display text-[clamp(1.05rem,5vw,1.35rem)] tracking-[0.02em]">
           STUDYTHEGAME
@@ -130,6 +131,6 @@ export default function Landing({ paymentLink }: { paymentLink: string }) {
           @huzzybuilds
         </a>
       </footer>
-    </>
+    </Shell>
   );
 }

@@ -65,9 +65,9 @@ export default function RootLayout({
         {/* Moody atmosphere layers (decorative, non-interactive) */}
         <div className="ambient" aria-hidden="true" />
         <div className="grain" aria-hidden="true" />
-        <div className="relative z-[2] mx-auto flex min-h-dvh max-w-[480px] flex-col px-6 pt-6 pb-[22px]">
-          {children}
-        </div>
+        {/* No width constraint here: the results feed is full-viewport.
+            Pages that want the narrow column wrap themselves in <Shell>. */}
+        <div className="relative z-[2]">{children}</div>
       </body>
     </html>
   );

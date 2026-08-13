@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PollResponse, Reel, SearchMeta } from "@/lib/types";
-import ResultCard from "./ResultCard";
+import Feed from "./Feed";
+import SearchOverlay from "./SearchOverlay";
 import ProgressRail, { type Stage } from "./ProgressRail";
+import { saveResults, loadResults } from "@/lib/session-cache";
 
 type View =
   | { k: "idle" }
@@ -17,11 +19,18 @@ const POLL_MS = 2000;
 export default function SearchApp({ initialKeyword }: { initialKeyword: string }) {
   const [keyword, setKeyword] = useState(initialKeyword);
   const [view, setView] = useState<View>({ k: "idle" });
+  const [searchOpen, setSearchOpen] = useState(false);
   const abort = useRef(false);
 
-  // The niche they typed before paying. The `n` param wins; localStorage is
-  // the fallback when Stripe didn't carry client_reference_id.
+  // Restore the last feed when returning from a breakdown page, so the back
+  // button doesn't silently cost another search.
   useEffect(() => {
+    const cached = loadResults();
+    if (cached?.results?.length) {
+      setKeyword(cached.keyword);
+      setView({ k: "done", results: cached.results, meta: cached.meta });
+      return;
+    }
     if (initialKeyword) return;
     try {
       const saved = localStorage.getItem("stg_niche");
@@ -33,6 +42,8 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
     const q = kw.trim();
     if (q.length < 2) return;
     abort.current = false;
+    setKeyword(q);
+    setSearchOpen(false);
     setView({ k: "running", stage: "pulling", found: 0 });
     try {
       localStorage.setItem("stg_niche", q);
@@ -55,8 +66,8 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
     }
     const start = (await res.json()) as { runId: string; datasetId: string };
 
-    // Widening spans multiple polls, so all state is carried in the query
-    // string and echoed straight back from each response.
+    // Widening spans multiple polls, so all state rides in the query string
+    // and is echoed straight back from each response.
     let params = new URLSearchParams({
       runId: start.runId,
       datasetId: start.datasetId,
@@ -101,6 +112,7 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
           });
           break;
         case "done":
+          saveResults({ keyword: q, results: data.results, meta: data.meta });
           setView({ k: "done", results: data.results, meta: data.meta });
           return;
         case "empty":
@@ -114,7 +126,7 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
     }
   }, []);
 
-  // Auto-run once on arrival if they already told us their niche pre-payment.
+  // Auto-run on arrival if they told us their niche before paying.
   const autoRan = useRef(false);
   useEffect(() => {
     if (autoRan.current || !keyword || view.k !== "idle") return;
@@ -122,174 +134,99 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
     void run(keyword);
   }, [keyword, view.k, run]);
 
+  // Cold arrival with no niche: open the overlay rather than showing a bare
+  // input on an empty screen.
+  useEffect(() => {
+    if (view.k === "idle" && !keyword) setSearchOpen(true);
+  }, [view.k, keyword]);
+
   useEffect(() => () => { abort.current = true; }, []);
 
   const busy = view.k === "running";
+  const hasFeed = view.k === "done";
 
   return (
     <>
-      <header className="flex items-center justify-between border-b border-hair pt-1.5 pb-5">
-        <span className="font-display text-[clamp(1.05rem,5vw,1.35rem)] tracking-[0.02em]">
-          STUDYTHEGAME
-        </span>
-        <span className="font-display text-[0.6rem] tracking-[0.18em] text-success">
-          UNLOCKED
-        </span>
-      </header>
-
-      <main className="flex flex-1 flex-col pt-7 pb-10">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void run(keyword);
-          }}
-          className="flex flex-col gap-3"
-        >
-          <label htmlFor="kw" className="sr-only">Niche</label>
-          <input
-            id="kw"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            placeholder="home gym"
-            autoComplete="off"
-            autoCapitalize="none"
-            spellCheck={false}
-            maxLength={60}
-            disabled={busy}
-            className="h-[54px] w-full appearance-none rounded-xl border border-hair bg-field px-4 text-base text-white outline-none transition-colors placeholder:text-muted focus:border-hairfocus disabled:opacity-50"
-          />
-          <button
-            type="submit"
-            disabled={busy || keyword.trim().length < 2}
-            className="h-[54px] w-full rounded-xl bg-accent px-5 text-[0.95rem] font-semibold tracking-[0.06em] text-black uppercase shadow-accent transition-opacity hover:opacity-90 active:translate-y-px disabled:opacity-35 disabled:shadow-none"
-          >
-            {busy ? "Working…" : "Find the outliers"}
-          </button>
-        </form>
-
-        {view.k === "running" && (
-          <ProgressRail stage={view.stage} found={view.found} widenedTo={view.widenedTo} />
-        )}
-
-        {view.k === "failed" && (
-          <div className="mt-8 rounded-[14px] border border-hair bg-white/[0.02] p-5">
-            <p className="text-[0.95rem]">That search didn&apos;t come back.</p>
-            <p className="mt-1.5 text-sm text-muted">
-              Instagram&apos;s feed for this term may be temporarily unavailable.
-            </p>
-            <button
-              onClick={() => void run(keyword)}
-              className="mt-4 h-11 rounded-xl border border-hair px-4 text-sm transition-colors hover:border-hairfocus"
-            >
-              Try again
-            </button>
-          </div>
-        )}
-
-        {view.k === "empty" && (
-          <div className="mt-8 rounded-[14px] border border-hair bg-white/[0.02] p-5">
-            <p className="text-[0.95rem]">
-              Instagram has no popular feed for that niche yet.
-            </p>
-            <p className="mt-1.5 text-sm text-muted">
-              It only builds them for broader terms. Try one of these:
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {view.suggestions.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => {
-                    setKeyword(s);
-                    void run(s);
-                  }}
-                  className="h-10 rounded-full border border-hair px-4 text-sm transition-colors hover:border-accent hover:text-accent"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {view.k === "done" && <Results results={view.results} meta={view.meta} />}
-      </main>
-
-      <footer className="mt-6 border-t border-hair pt-5">
-        <a
-          href="https://instagram.com/huzzybuilds"
-          className="text-sm text-muted no-underline transition-colors hover:text-white"
-        >
-          @huzzybuilds
-        </a>
-      </footer>
-    </>
-  );
-}
-
-function Results({ results, meta }: { results: Reel[]; meta: SearchMeta }) {
-  const solid = results.filter((r) => r.confidence >= 0.6);
-  const borderline = results.filter((r) => r.confidence < 0.6);
-
-  return (
-    <section className="mt-8">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[0.8125rem] text-muted">
-        <span>
-          <span className="font-num text-white">{results.length}</span> reels
-        </span>
-        <span aria-hidden>·</span>
-        <span>
-          median{" "}
-          <span className="font-num text-white">
-            {meta.medianPlays.toLocaleString()}
-          </span>{" "}
-          {meta.metric}
-        </span>
-        {!meta.filtered && (
-          <span className="rounded border border-hair px-1.5 py-0.5 font-display text-[0.55rem] tracking-[0.14em]">
-            UNFILTERED
-          </span>
-        )}
-        {meta.partial && (
-          <span className="rounded border border-hair px-1.5 py-0.5 font-display text-[0.55rem] tracking-[0.14em]">
-            PARTIAL
-          </span>
-        )}
-      </div>
-
-      {meta.keywordsUsed.length > 1 && (
-        <p className="mt-2 text-[0.8125rem] text-muted">
-          also searched{" "}
-          <span className="text-white">{meta.keywordsUsed.slice(1).join(", ")}</span>
-        </p>
+      {hasFeed && (
+        <Feed
+          results={view.results}
+          meta={view.meta}
+          keyword={keyword}
+          onOpenSearch={() => setSearchOpen(true)}
+        />
       )}
 
-      <ol className="mt-5 flex flex-col gap-3">
-        {solid.map((r, i) => (
-          <ResultCard key={r.shortCode} reel={r} rank={i + 1} autoBreakdown={i < 8} />
-        ))}
-      </ol>
-
-      {borderline.length > 0 && (
-        <>
-          <div className="mt-8 mb-3 flex items-center gap-3">
-            <span className="h-px flex-1 bg-hair" />
-            <span className="font-display text-[0.6rem] tracking-[0.16em] text-muted">
-              LESS CERTAIN
-            </span>
-            <span className="h-px flex-1 bg-hair" />
-          </div>
-          <ol className="flex flex-col gap-3 opacity-70">
-            {borderline.map((r, i) => (
-              <ResultCard
-                key={r.shortCode}
-                reel={r}
-                rank={solid.length + i + 1}
-                autoBreakdown={false}
+      {!hasFeed && (
+        <div className="mx-auto flex min-h-dvh max-w-[480px] flex-col justify-center px-6">
+          {busy && (
+            <div>
+              <p className="mb-6 font-display text-[0.62rem] tracking-[0.18em] text-muted">
+                {keyword.toUpperCase()}
+              </p>
+              <ProgressRail
+                stage={view.stage}
+                found={view.found}
+                widenedTo={view.widenedTo}
               />
-            ))}
-          </ol>
-        </>
+            </div>
+          )}
+
+          {view.k === "failed" && (
+            <div className="rounded-[14px] border border-hair bg-white/[0.02] p-5">
+              <p className="text-[0.95rem]">That search didn&apos;t come back.</p>
+              <p className="mt-1.5 text-sm text-muted">
+                Instagram&apos;s feed for this term may be temporarily unavailable.
+              </p>
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={() => void run(keyword)}
+                  className="h-11 rounded-xl bg-accent px-4 text-sm font-semibold text-black"
+                >
+                  Try again
+                </button>
+                <button
+                  onClick={() => setSearchOpen(true)}
+                  className="h-11 rounded-xl border border-hair px-4 text-sm"
+                >
+                  New niche
+                </button>
+              </div>
+            </div>
+          )}
+
+          {view.k === "empty" && (
+            <div className="rounded-[14px] border border-hair bg-white/[0.02] p-5">
+              <p className="text-[0.95rem]">
+                Instagram has no popular feed for {keyword}.
+              </p>
+              <p className="mt-1.5 text-sm text-muted">
+                It only builds them for broader terms. Try one of these:
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {view.suggestions.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => void run(s)}
+                    className="h-10 rounded-full border border-hair px-4 text-sm transition-colors hover:border-accent hover:text-accent"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
-    </section>
+
+      {searchOpen && (
+        <SearchOverlay
+          initial={keyword}
+          busy={busy}
+          onSearch={(kw) => void run(kw)}
+          onClose={() => setSearchOpen(false)}
+          closable={hasFeed}
+        />
+      )}
+    </>
   );
 }

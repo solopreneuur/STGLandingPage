@@ -34,6 +34,7 @@ export function scoreAndSort(
       url: i.url ?? `https://www.instagram.com/reel/${i.shortCode}/`,
       caption: i.caption ?? "",
       displayUrl: i.displayUrl ?? "",
+      videoUrl: i.videoUrl ?? "",
       ownerUsername: i.ownerUsername ?? "",
       ownerFullName: i.ownerFullName ?? "",
       timestamp: i.timestamp ?? "",

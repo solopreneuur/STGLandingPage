@@ -22,6 +22,7 @@ export const ApifyItemSchema = z
     url: z.string().nullish(),
     caption: z.string().nullish(),
     displayUrl: z.string().nullish(),
+    videoUrl: z.string().nullish(),
     ownerUsername: z.string().nullish(),
     ownerFullName: z.string().nullish(),
     timestamp: z.string().nullish(),
@@ -48,6 +49,8 @@ export interface Reel {
   url: string;
   caption: string;
   displayUrl: string;
+  /** Direct mp4 for the in-view player. Proxied via /api/video. */
+  videoUrl: string;
   ownerUsername: string;
   ownerFullName: string;
   timestamp: string;
