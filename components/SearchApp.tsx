@@ -85,17 +85,49 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
       used: q,
     });
 
+    /**
+     * Hard bounds on the poll loop.
+     *
+     * Previously this was `for(;;)` with a switch that only handled known
+     * phases. Any response without a `phase` — a 401 from another tab's stale
+     * session, a 502, an edge error — matched nothing, fell through, slept,
+     * and retried forever. That is the "Working..." that never finishes.
+     */
+    const deadline = Date.now() + 4 * 60 * 1000;
+    let ticks = 0;
+
     for (;;) {
       if (abort.current) return;
+      if (Date.now() > deadline || ++ticks > 150) {
+        setView({ k: "failed" });
+        return;
+      }
+
       let data: PollResponse & Record<string, string>;
       try {
         const r = await fetch(`/api/search/poll?${params.toString()}`);
+        if (r.status === 401) {
+          // Access cookie is gone or invalid. Reloading re-runs the server
+          // gate, which shows the paywall instead of spinning forever.
+          window.location.href = "/";
+          return;
+        }
+        if (!r.ok) {
+          setView({ k: "failed" });
+          return;
+        }
         data = await r.json();
       } catch {
         setView({ k: "failed" });
         return;
       }
       if (abort.current) return;
+
+      // Unknown/absent phase must terminate, never fall through to the sleep.
+      if (!data || typeof data.phase !== "string") {
+        setView({ k: "failed" });
+        return;
+      }
 
       switch (data.phase) {
         case "pulling":
@@ -119,7 +151,7 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
           });
           break;
         case "done":
-          if (data.provisional) {
+          if (data.provisional && data.results?.length) {
             // Feed is live now; keep polling so the full run can supply the
             // real median and reveal multipliers.
             setView({
@@ -151,6 +183,9 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
           setView({ k: "empty", suggestions: data.suggestions ?? [] });
           return;
         case "failed":
+          setView({ k: "failed" });
+          return;
+        default:
           setView({ k: "failed" });
           return;
       }
