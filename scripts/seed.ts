@@ -18,6 +18,7 @@ import { filterAudience, applyVerdicts } from "../lib/filter.ts";
 import { scoreAndSort } from "../lib/score.ts";
 import { breakdownReel } from "../lib/breakdown.ts";
 import { synthesize } from "../lib/synthesis.ts";
+import { suggestVariants } from "../lib/variants.ts";
 import {
   normalizeSlug,
   upsertNiche,
@@ -25,6 +26,7 @@ import {
   readBreakdown,
   writeBreakdown,
   writeSynthesis,
+  writeAlias,
   bySlugPublic,
   isFresh,
 } from "../lib/cache.ts";
@@ -90,12 +92,33 @@ async function seedOne(term: string): Promise<void> {
     }
   }
 
-  // 1. pull
-  const raw = await runSync(term, SEED_LIMIT, SEED_TIMEOUT_MS);
+  // 1. pull, widening the same way the live path does.
+  //
+  // 12 of 16 keywords have an Instagram popular feed; "fitness" is one that
+  // does not. Skipping it would leave a permanent hole in a niche people
+  // obviously search for, so fall back to the semantic variants and store
+  // under whichever term actually returned data.
+  let raw = await runSync(term, SEED_LIMIT, SEED_TIMEOUT_MS);
+  let landed = term;
+
   if (raw.length === 0) {
-    console.log(`   NO FEED for "${term}" — skipping (expected for some terms)`);
+    const variants = await suggestVariants(term, [term]);
+    console.log(`   no feed — widening: ${variants.join(", ") || "(none)"}`);
+    for (const v of variants) {
+      raw = await runSync(v, SEED_LIMIT, SEED_TIMEOUT_MS);
+      if (raw.length > 0) {
+        landed = v;
+        break;
+      }
+    }
+  }
+  if (raw.length === 0) {
+    console.log(`   NO FEED for "${term}" and no variant worked — skipping`);
     return;
   }
+
+  const landedSlug = normalizeSlug(landed);
+  if (landedSlug !== slug) console.log(`   landed on "${landedSlug}"`);
   const { items, metric } = normalize(raw as unknown[]);
   console.log(`   pulled ${raw.length} → ${items.length} usable  (${secs(t0)}s)`);
 
@@ -107,12 +130,15 @@ async function seedOne(term: string): Promise<void> {
   console.log(`   filtered → ${results.length} reels  (${secs(tf)}s)`);
 
   // 3. persist reels
-  const nicheId = await upsertNiche(slug);
+  const nicheId = await upsertNiche(landedSlug);
   if (!nicheId) {
     console.log("   DB write failed — skipping breakdowns");
     return;
   }
   await writeReels(nicheId, results);
+  // Memo the term we were ASKED for, so a search for it resolves instantly
+  // instead of paying for the synonym call it would otherwise need.
+  if (landedSlug !== slug) await writeAlias(slug, nicheId);
 
   // 4. breakdowns — the expensive part, and the whole reason to seed
   const tb = Date.now();
@@ -152,7 +178,7 @@ async function seedOne(term: string): Promise<void> {
       const b = await readBreakdown(r.shortCode);
       if (b) bds.set(r.shortCode, b);
     }
-    const syn = await synthesize(slug, results, bds);
+    const syn = await synthesize(landedSlug, results, bds);
     await writeSynthesis(nicheId, syn);
     console.log(`   synthesis ok  (${secs(ts)}s)  "${syn.headline.slice(0, 70)}"`);
   } catch (err) {
