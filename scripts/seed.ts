@@ -51,6 +51,8 @@ const SEED = [
 const MODEL = process.env.MODEL_BREAKDOWN || "claude-opus-5";
 const FORCE = process.env.FORCE === "1";
 const DELAY_MS = 2000;
+/** Nobody is waiting on this, so give a 50-item pull all the room it needs. */
+const SEED_TIMEOUT_MS = 240_000;
 /** Concurrent Opus calls per niche. Enough to be quick, not enough to 429. */
 const BREAKDOWN_CONCURRENCY = 5;
 
@@ -89,7 +91,7 @@ async function seedOne(term: string): Promise<void> {
   }
 
   // 1. pull
-  const raw = await runSync(term, SEED_LIMIT);
+  const raw = await runSync(term, SEED_LIMIT, SEED_TIMEOUT_MS);
   if (raw.length === 0) {
     console.log(`   NO FEED for "${term}" — skipping (expected for some terms)`);
     return;
@@ -160,16 +162,25 @@ async function seedOne(term: string): Promise<void> {
   console.log(`   DONE in ${secs(t0)}s`);
 }
 
-const targets = process.argv.slice(2).length ? process.argv.slice(2) : SEED;
-console.log(`seeding ${targets.length} niches at SEED_LIMIT=${SEED_LIMIT}\n`);
+// Wrapped rather than top-level await: the package is CommonJS, so tsx
+// transforms this to CJS where top-level await is a syntax error.
+async function main(): Promise<void> {
+  const targets = process.argv.slice(2).length ? process.argv.slice(2) : SEED;
+  console.log(`seeding ${targets.length} niches at SEED_LIMIT=${SEED_LIMIT}\n`);
 
-const start = Date.now();
-for (const t of targets) {
-  try {
-    await seedOne(t);
-  } catch (err) {
-    console.log(`   FAILED: ${(err as Error).message.slice(0, 120)}`);
+  const start = Date.now();
+  for (const t of targets) {
+    try {
+      await seedOne(t);
+    } catch (err) {
+      console.log(`   FAILED: ${(err as Error).message.slice(0, 120)}`);
+    }
+    await sleep(DELAY_MS);
   }
-  await sleep(DELAY_MS);
+  console.log(`\nall done in ${((Date.now() - start) / 60000).toFixed(1)} min`);
 }
-console.log(`\nall done in ${((Date.now() - start) / 60000).toFixed(1)} min`);
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

@@ -3,6 +3,7 @@ import { runSync } from "@/lib/apify";
 import { normalize, getPlays } from "@/lib/normalize";
 import { filterAudience, applyVerdicts } from "@/lib/filter";
 import { USE_FIXTURES, fixtureItems } from "@/lib/fixtures";
+import { resolveNiche, writeReels } from "@/lib/cache";
 import type { Metric, Reel } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -70,6 +71,15 @@ export async function POST(req: Request) {
         };
       })
       .sort((a, b) => b.score - a.score);
+
+    // Write-through: one person scrolling deep enriches the niche for everyone
+    // after them. Fire-and-forget so the response never waits on Postgres, and
+    // `archiveMissing` stays false — this ADDS reels and must never archive the
+    // ones the user is currently looking at.
+    void (async () => {
+      const { niche } = await resolveNiche(keyword);
+      if (niche) await writeReels(niche.id, results);
+    })();
 
     return NextResponse.json({ results });
   } catch (err) {

@@ -402,6 +402,26 @@ export async function writeSynthesis(
   );
 }
 
+/**
+ * Niches the weekly cron should re-pull: everything anyone has ever landed on,
+ * most-wanted first. Capped by the caller so the job stays inside 300s.
+ */
+export async function refreshTargets(limit: number): Promise<NicheRow[]> {
+  return safe<NicheRow[]>(
+    "refreshTargets",
+    async (c) => {
+      const { data } = await c
+        .from("niches")
+        .select("id, slug, last_refreshed_at, hit_count")
+        .order("hit_count", { ascending: false })
+        .order("last_refreshed_at", { ascending: true, nullsFirst: true })
+        .limit(limit);
+      return (data ?? []) as NicheRow[];
+    },
+    []
+  );
+}
+
 /** Powers the "or explore" chips. */
 export async function popularNiches(limit = 8): Promise<string[]> {
   return safe<string[]>(

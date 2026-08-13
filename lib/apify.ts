@@ -5,12 +5,12 @@ const ACTOR = process.env.APIFY_ACTOR_ID || "apify~instagram-search-scraper";
 const BASE = "https://api.apify.com/v2";
 
 /**
- * Per-run size. Max 250 per keyword (Instagram's own ceiling).
+ * Per-run size for the live path. Max 250 per keyword (Instagram's own ceiling).
  *
- * Measured: ~15s of every run is fixed container startup, then ~0.26s per
- * item. So 25 lands around 21s versus 28s for 50 — a real saving — and the
- * remainder is fetched with a top-up run only if the user scrolls that deep.
- * Most sessions never need it, so most searches got ~7s faster and cheaper.
+ * Measured, not interpolated: 12 items lands at 18.3s, 50 items at 28.1s.
+ * About 15s of every run is fixed container startup and the rest is ~0.26s per
+ * item, so a small first run is worth a real 10s and the remainder is fetched
+ * with a top-up only if the user actually scrolls that deep.
  */
 export const SEARCH_LIMIT = Number(process.env.SEARCH_LIMIT ?? 12);
 
@@ -36,15 +36,26 @@ export const SEED_LIMIT = Number(process.env.SEED_LIMIT ?? 50);
  * add genuinely new reels instead of repeating page 1.
  */
 
-/** Sync run used for scroll-triggered top-ups. */
-export async function runSync(search: string, limit = SEARCH_LIMIT): Promise<ApifyItem[]> {
+/**
+ * Sync run, used for scroll-triggered top-ups and every background job.
+ *
+ * The timeout has to be the caller's choice, not a constant. 55s is right for
+ * a live top-up where someone is waiting, but a 50-item background pull can
+ * exceed it — multi-word searches are slower than the 28.1s measured for a
+ * single word, and the seed aborted "content creation" at exactly 55s.
+ */
+export async function runSync(
+  search: string,
+  limit = SEARCH_LIMIT,
+  timeoutMs = 55_000
+): Promise<ApifyItem[]> {
   const res = await fetch(
     `${BASE}/acts/${ACTOR}/run-sync-get-dataset-items?token=${TOKEN}`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(buildInput(search, limit)),
-      signal: AbortSignal.timeout(55000),
+      signal: AbortSignal.timeout(timeoutMs),
     }
   );
   if (!res.ok) return [];
