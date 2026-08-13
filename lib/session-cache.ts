@@ -229,7 +229,9 @@ const SOUND_KEY = "stg_sound";
 export function getSoundOn(): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return sessionStorage.getItem(SOUND_KEY) === "1";
+    // Sound ON unless the user turned it OFF. Only an explicit "0" mutes;
+    // an absent key is a first visit, not a preference for silence.
+    return sessionStorage.getItem(SOUND_KEY) !== "0";
   } catch {
     return false;
   }

@@ -68,11 +68,6 @@ export default function Feed({
     });
   }, []);
 
-  /** Autoplay with sound was refused; reflect reality rather than lying. */
-  const forceMute = useCallback(() => {
-    saveSoundOn(false);
-    setSoundOn(false);
-  }, []);
   const scroller = useRef<HTMLDivElement>(null);
   const inflight = useRef(false);
   // Seeded from the session, not zero. App Router unmounts Feed on every
@@ -296,7 +291,6 @@ export default function Feed({
             isActive={i === active}
             medianPlays={meta.medianPlays}
             soundOn={soundOn}
-            onAutoplayBlocked={forceMute}
           />
         ))}
         {remaining.length === 0 && slides.length > 0 && (
@@ -328,14 +322,12 @@ function Slide({
   isActive,
   medianPlays,
   soundOn,
-  onAutoplayBlocked,
 }: {
   reel: Reel;
   index: number;
   isActive: boolean;
   medianPlays: number;
   soundOn: boolean;
-  onAutoplayBlocked: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [imgFailed, setImgFailed] = useState(false);
@@ -369,25 +361,37 @@ function Slide({
       v.currentTime = 0;
       return;
     }
-    // Muted autoplay is the only kind browsers allow without a gesture. Once
-    // the user has tapped the sound control that gesture exists, so unmuted
-    // playback is allowed — but Safari in particular can still refuse on a
-    // later slide, and a silent refusal would leave the speaker icon claiming
-    // sound that is not playing.
-    v.muted = !soundOn;
-    v.play().catch((err: DOMException) => {
-      // Only NotAllowedError means "the browser refused sound". Scrolling
-      // tears the element down mid-buffer (AbortError) and a dead Instagram
-      // CDN url 502s through the proxy (NotSupportedError) — treating either
-      // as a refusal muted the whole feed for an unrelated reason, and retried
-      // play() on a detached element, streaming ~4MB for a reel off screen.
-      if (videoRef.current !== v) return;
-      if (err?.name !== "NotAllowedError" || v.muted) return;
-      v.muted = true;
-      onAutoplayBlocked();
-      v.play().catch(() => {});
-    });
-  }, [isActive, soundOn, onAutoplayBlocked]);
+    // Start muted, THEN unmute — never the other way round.
+    //
+    // Muted autoplay is the only kind browsers never refuse. Asking for sound
+    // up front makes play() itself fail, and the previous version treated that
+    // failure as "the user wants silence" and cleared the preference, which is
+    // why sound switched itself off after a few scrolls. Unmuting an element
+    // that is ALREADY playing is a different, far more permissive path.
+    let cancelled = false;
+    if (v.paused) v.muted = true;
+    v.play()
+      .then(() => {
+        if (cancelled || videoRef.current !== v) return;
+        v.muted = !soundOn;
+        // Safari can pause on unmute without fresh activation. Fall back to
+        // muted playback for THIS slide only; the preference is untouched, so
+        // the next slide tries for sound again.
+        if (v.paused) {
+          v.play().catch(() => {
+            v.muted = true;
+            v.play().catch(() => {});
+          });
+        }
+      })
+      .catch(() => {
+        // Torn down mid-buffer, or a dead CDN url behind the proxy. Neither is
+        // a statement about sound.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isActive, soundOn]);
 
   return (
     <section
