@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ApifyItem, FilterVerdict } from "./types";
+import { USE_FIXTURES, fixtureVerdicts } from "./fixtures";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = process.env.MODEL_FILTER || "claude-sonnet-5";
@@ -94,12 +95,67 @@ export interface FilterResult {
  *    to keep at confidence 0.5 (borderline, sorts to the bottom). Dropping on
  *    absence would silently turn model truncation into data loss.
  */
+/**
+ * Items per request. Latency here is dominated by SERIAL output-token
+ * generation, not input size: 40 items in one call emits ~1,200 output tokens
+ * one after another (measured: 29.8s). Three concurrent calls of ~13 emit
+ * ~400 each in parallel, for the same total tokens and cost at roughly a
+ * third of the wall clock.
+ *
+ * Each item is still judged holistically on its own caption + comments —
+ * verdicts never compare items against each other, so chunking changes
+ * nothing about the judgment.
+ */
+const CHUNK_SIZE = 14;
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 export async function filterAudience(items: ApifyItem[]): Promise<FilterResult> {
   const verdicts = new Map<string, FilterVerdict>();
   if (items.length === 0) return { verdicts, filtered: true };
 
-  try {
-    const msg = await client.messages.create({
+  // Offline: replay the captured verdicts. Items with no captured verdict fall
+  // through to the same borderline-keep default as a live truncated response,
+  // so offline behaviour matches online behaviour.
+  if (USE_FIXTURES) {
+    const captured = fixtureVerdicts();
+    for (const i of items) {
+      const v = captured.get(i.shortCode);
+      if (v) verdicts.set(i.shortCode, v);
+    }
+    return { verdicts, filtered: true };
+  }
+
+  const groups = chunk(items, CHUNK_SIZE);
+  const settled = await Promise.allSettled(groups.map((g) => filterChunk(g)));
+
+  let anyOk = false;
+  for (const s of settled) {
+    if (s.status === "fulfilled") {
+      anyOk = true;
+      for (const v of s.value) verdicts.set(v.shortCode, v);
+    } else {
+      console.error("[filter] chunk failed:", s.reason);
+    }
+  }
+
+  // Partial success still counts as filtered: items from a failed chunk have
+  // no verdict and fall through to borderline-keep, which is the same
+  // graceful path as a truncated response. Only a total wipeout drops the
+  // badge to "unfiltered".
+  return { verdicts, filtered: anyOk };
+}
+
+/**
+ * One chunk. Throws on failure so Promise.allSettled can isolate it — a bad
+ * chunk must not take down the other concurrent chunks.
+ */
+async function filterChunk(items: ApifyItem[]): Promise<FilterVerdict[]> {
+  const msg = await client.messages.create({
       model: MODEL,
       max_tokens: 8000,
       system: SYSTEM,
@@ -117,18 +173,13 @@ export async function filterAudience(items: ApifyItem[]): Promise<FilterResult> 
       ],
     } as Anthropic.MessageCreateParamsNonStreaming);
 
-    const text = msg.content.find((b) => b.type === "text");
-    if (!text || text.type !== "text") throw new Error("no text block");
-    const parsed = JSON.parse(text.text) as { verdicts: FilterVerdict[] };
+  const text = msg.content.find((b) => b.type === "text");
+  if (!text || text.type !== "text") throw new Error("no text block");
+  const parsed = JSON.parse(text.text) as { verdicts: FilterVerdict[] };
 
-    for (const v of parsed.verdicts ?? []) {
-      if (typeof v?.shortCode === "string") verdicts.set(v.shortCode, v);
-    }
-    return { verdicts, filtered: true };
-  } catch (err) {
-    console.error("[filter] failed, shipping unfiltered:", err);
-    return { verdicts, filtered: false };
-  }
+  return (parsed.verdicts ?? []).filter(
+    (v): v is FilterVerdict => typeof v?.shortCode === "string"
+  );
 }
 
 /** Items the filter explicitly rejected. Borderlines are NOT dropped. */

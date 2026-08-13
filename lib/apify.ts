@@ -106,8 +106,13 @@ export async function getDatasetItems(datasetId: string): Promise<ApifyItem[]> {
  */
 export function widenKeyword(keyword: string): string | null {
   const words = keyword.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length > 1) return words[words.length - 1]; // head noun, usually last in EN
-  const w = words[0] ?? "";
-  if (w.length > 4 && w.endsWith("s")) return w.slice(0, -1); // simple singularize
+  // Multi-word: drop to the head noun ("home gym" -> "gym"). Cheap and
+  // genuinely effective, since long slugs rarely have a popular feed.
+  if (words.length > 1) return words[words.length - 1];
+
+  // Single word: there is no safe string transform. Naive singularization
+  // turned "fitness" into "fitnes", which cannot have a feed and wastes an
+  // attempt. Return null and let the semantic model call handle it — that is
+  // exactly the case it exists for.
   return null;
 }

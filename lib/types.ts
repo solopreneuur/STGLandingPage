@@ -80,11 +80,30 @@ export interface SearchMeta {
    Poll contract. Phase labels are server-driven — never a dead spinner.
    ============================================================ */
 
+/**
+ * The `widening` variant carries the next run's ids plus the accumulated
+ * queue/used/datasets state. Widening spans multiple poll calls (running six
+ * sequential Apify runs in one request would blow the function timeout), so
+ * the client echoes these straight back on the next poll.
+ */
+export interface WideningState {
+  runId: string;
+  datasetId: string;
+  keyword: string;
+  original: string;
+  /** CSV of dataset ids collected so far — merged at the end. */
+  datasets: string;
+  /** CSV of remaining candidate keywords. */
+  queue: string;
+  /** CSV of keywords already attempted. */
+  used: string;
+}
+
 export type PollResponse =
   | { phase: "pulling"; found: number }
   | { phase: "filtering" }
   | { phase: "scoring" }
-  | { phase: "widening"; triedKeyword: string }
+  | ({ phase: "widening"; triedKeyword: string } & WideningState)
   | { phase: "done"; results: Reel[]; meta: SearchMeta }
   | { phase: "empty"; suggestions: string[] }
   | { phase: "failed"; retryable: boolean };
