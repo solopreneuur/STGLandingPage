@@ -27,6 +27,7 @@ import {
   writeBreakdown,
   writeSynthesis,
   writeAlias,
+  readReels,
   bySlugPublic,
   isFresh,
   nicheHealth,
@@ -92,8 +93,10 @@ async function seedOne(term: string): Promise<void> {
       // leaves a niche that is recent but has no breakdowns and no synthesis,
       // and skipping on date alone would make the seed unable to repair it.
       const h = await nicheHealth(existing.id);
-      const done =
-        h.reels > 0 && h.judged === h.reels && h.breakdowns === h.reels && h.synthesis;
+      // Judged is NOT part of the bar: an absent verdict is a deliberate
+      // borderline-keep, not missing work, and requiring it would re-run a
+      // healthy niche on every pass.
+      const done = h.reels > 0 && h.breakdowns >= h.reels && h.synthesis;
       if (done) {
         console.log(`   skip — complete (${h.reels} reels)`);
         return;
@@ -159,6 +162,15 @@ async function seedOne(term: string): Promise<void> {
     return;
   }
   await writeReels(nicheId, results);
+
+  // Work from the niche's FULL active set, not just this pull. The actor
+  // re-samples rather than paginates, so each run returns a partly different
+  // slice and the stored niche is the union of every run. Generating
+  // breakdowns only for the current pull leaves older reels permanently
+  // uncovered — and makes the completeness check below re-run this niche
+  // forever, since coverage can never reach 100%.
+  const { reels: active } = await readReels(nicheId);
+  const targets = active.length > 0 ? active : results;
   // Memo the term we were ASKED for, so a search for it resolves instantly
   // instead of paying for the synonym call it would otherwise need.
   if (landedSlug !== slug) await writeAlias(slug, nicheId);
@@ -167,7 +179,7 @@ async function seedOne(term: string): Promise<void> {
   const tb = Date.now();
   let generated = 0;
   let reused = 0;
-  await pool(results, BREAKDOWN_CONCURRENCY, async (r) => {
+  await pool(targets, BREAKDOWN_CONCURRENCY, async (r) => {
     // Global cache: a reel already analyzed under another niche is free here.
     if (await readBreakdown(r.shortCode)) {
       reused++;
@@ -197,11 +209,11 @@ async function seedOne(term: string): Promise<void> {
   const ts = Date.now();
   try {
     const bds = new Map<string, Breakdown>();
-    for (const r of results) {
+    for (const r of targets) {
       const b = await readBreakdown(r.shortCode);
       if (b) bds.set(r.shortCode, b);
     }
-    const syn = await synthesize(landedSlug, results, bds);
+    const syn = await synthesize(landedSlug, targets, bds);
     await writeSynthesis(nicheId, syn);
     console.log(`   synthesis ok  (${secs(ts)}s)  "${syn.headline.slice(0, 70)}"`);
   } catch (err) {

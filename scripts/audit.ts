@@ -54,7 +54,8 @@ async function main(): Promise<void> {
       .eq("niche_id", n.id)
       .maybeSingle();
 
-    const ok = rows.length > 0 && judged === rows.length && bds === rows.length && !!syn;
+    // Judged is informational: an absent verdict is a borderline-keep by design.
+    const ok = rows.length > 0 && bds >= rows.length && !!syn;
     if (!ok) damaged.push(n.slug);
     console.log(
       `${n.slug.padEnd(20)} ${String(rows.length).padStart(5)}  ` +
