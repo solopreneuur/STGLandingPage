@@ -46,14 +46,24 @@ export function scoreAndSort(
     };
   });
 
-  results.sort((a, b) => {
-    const aBorder = a.confidence < BORDERLINE;
-    const bBorder = b.confidence < BORDERLINE;
-    if (aBorder !== bBorder) return aBorder ? 1 : -1; // borderlines to the bottom
-    return b.score - a.score;
-  });
+  results.sort(byConfidenceThenScore);
 
   return { results, medianPlays: med };
+}
+
+/**
+ * Borderlines to the bottom, then by multiplier.
+ *
+ * Exported because every path that orders a feed has to use it. The cached
+ * serve path and the scroll top-up both sorted on score alone, so reels the
+ * filter said it could not vouch for were taking the headline card — the
+ * filter prompt promises this behaviour, so the system has to actually do it.
+ */
+export function byConfidenceThenScore(a: Reel, b: Reel): number {
+  const aBorder = a.confidence < BORDERLINE;
+  const bBorder = b.confidence < BORDERLINE;
+  if (aBorder !== bBorder) return aBorder ? 1 : -1;
+  return b.score - a.score;
 }
 
 /**

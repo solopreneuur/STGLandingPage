@@ -11,6 +11,8 @@ import {
   getActiveIndex,
   getSoundOn,
   saveSoundOn,
+  appendResults,
+  getTopups,
 } from "@/lib/session-cache";
 import GoDeeper from "./GoDeeper";
 
@@ -73,7 +75,13 @@ export default function Feed({
   }, []);
   const scroller = useRef<HTMLDivElement>(null);
   const inflight = useRef(false);
+  // Seeded from the session, not zero. App Router unmounts Feed on every
+  // navigation into /r/, so a per-mount ref handed the user a fresh pair of
+  // billed Apify runs every single time they came back from a breakdown.
   const toppedUp = useRef(0);
+  useEffect(() => {
+    toppedUp.current = getTopups(keyword);
+  }, [keyword]);
 
   const prevKeyword = useRef(keyword);
   const restored = useRef(false);
@@ -86,18 +94,28 @@ export default function Feed({
     setRemaining(pool);
     if (prevKeyword.current !== keyword) {
       prevKeyword.current = keyword;
-      restored.current = true; // a fresh niche has no position to restore
+      // Re-arm the restore rather than forcing the top: switching to a niche
+      // held in the session cache keeps Feed mounted, and that niche may well
+      // have a position worth returning to.
+      restored.current = false;
       setActive(0);
-      saveActiveIndex(keyword, 0);
     }
   }, [results, pool, keyword]);
 
   // Restore the slide they left off on, once, after the slides exist.
   useEffect(() => {
     if (restored.current || slides.length === 0) return;
-    restored.current = true;
     const i = getActiveIndex(keyword);
-    if (i <= 0 || i >= slides.length) return;
+    if (i <= 0) {
+      restored.current = true;
+      return;
+    }
+    // A saved index can sit beyond what has loaded so far — the position was
+    // recorded in appended slides. Leave the guard UNARMED so this re-fires
+    // once the feed grows, instead of silently dropping the user at the top.
+    if (i >= slides.length) return;
+
+    restored.current = true;
     const el = scroller.current?.querySelector(`[data-i="${i}"]`);
     // Instant, never smooth: an animated scroll on mount reads as the page
     // running away from you.
@@ -106,6 +124,9 @@ export default function Feed({
   }, [slides.length, keyword]);
 
   useEffect(() => {
+    // Never write before the restore has run, or this stores the placeholder
+    // 0 from the first render and erases the position it is waiting to read.
+    if (!restored.current) return;
     saveActiveIndex(keyword, active);
   }, [keyword, active]);
 
@@ -116,7 +137,8 @@ export default function Feed({
    */
   useEffect(() => {
     if (inflight.current) return;
-    if (active < slides.length - LOOKAHEAD) return;
+    // active can now equal slides.length on the terminal paywall slide.
+    if (Math.min(active, slides.length - 1) < slides.length - LOOKAHEAD) return;
 
     // Pool exhausted: pull another sample from Apify rather than ending the
     // feed. The initial run is only 25 precisely because most sessions never
@@ -139,7 +161,12 @@ export default function Feed({
             }),
           });
           const { results: more } = (await res.json()) as { results: Reel[] };
-          if (more?.length) setSlides((prev) => [...prev, ...more]);
+          if (more?.length) {
+            setSlides((prev) => [...prev, ...more]);
+            // Persist both the reels and the spend, so coming back from a reel
+            // neither loses them nor re-buys them.
+            appendResults(keyword, more, toppedUp.current);
+          }
         } catch {
           // No more reels is an acceptable end state.
         } finally {
@@ -206,7 +233,12 @@ export default function Feed({
     );
     root.querySelectorAll("[data-i]").forEach((el) => io.observe(el));
     return () => io.disconnect();
-  }, [slides.length]);
+    // Depend on the ARRAY, not its length. Slides are keyed by shortCode, so a
+    // niche change replaces every node — and a new niche with the same count
+    // left the observer bound to detached nodes, freezing `active` at 0. Nine
+    // of the thirteen live niches collide on length, so an A -> B -> A search
+    // hit it. Re-querying the DOM on an extra render is cheap.
+  }, [slides]);
 
   return (
     <div className="fixed inset-0 z-10 bg-bg">
@@ -233,7 +265,11 @@ export default function Feed({
             {soundOn ? "🔊" : "🔇"}
           </button>
           <span className="pointer-events-auto rounded-full bg-black/55 px-3 py-2 text-[0.7rem] text-white/70 backdrop-blur-sm">
-            <span className="font-num text-white">{active + 1}</span>/{slides.length}{remaining.length > 0 ? "+" : ""}
+            <span className="font-num text-white">
+              {Math.min(active + 1, slides.length)}
+            </span>
+            /{slides.length}
+            {remaining.length > 0 ? "+" : ""}
           </span>
         </div>
       </div>
@@ -264,7 +300,13 @@ export default function Feed({
           />
         ))}
         {remaining.length === 0 && slides.length > 0 && (
-          <section className="flex min-h-dvh w-full snap-start snap-always flex-col justify-center bg-bg px-6 py-12">
+          <section
+            // Observable like any slide. Without it nothing could move `active`
+            // past the final reel, so that reel stayed mounted and — once sound
+            // shipped — looped audibly underneath the $1 paywall.
+            data-i={slides.length}
+            className="flex min-h-dvh w-full snap-start snap-always flex-col justify-center bg-bg px-6 py-12"
+          >
             <div className="mx-auto w-full max-w-[480px]">
               <GoDeeper
                 keyword={keyword}
@@ -333,8 +375,14 @@ function Slide({
     // later slide, and a silent refusal would leave the speaker icon claiming
     // sound that is not playing.
     v.muted = !soundOn;
-    v.play().catch(() => {
-      if (v.muted) return;
+    v.play().catch((err: DOMException) => {
+      // Only NotAllowedError means "the browser refused sound". Scrolling
+      // tears the element down mid-buffer (AbortError) and a dead Instagram
+      // CDN url 502s through the proxy (NotSupportedError) — treating either
+      // as a refusal muted the whole feed for an unrelated reason, and retried
+      // play() on a detached element, streaming ~4MB for a reel off screen.
+      if (videoRef.current !== v) return;
+      if (err?.name !== "NotAllowedError" || v.muted) return;
       v.muted = true;
       onAutoplayBlocked();
       v.play().catch(() => {});

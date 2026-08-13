@@ -32,6 +32,8 @@ export interface CachedSearch {
   /** Dataset ids the JIT filter needs to re-read comments. */
   datasets: string;
   meta: SearchMeta;
+  /** Billed Apify top-ups already spent on this niche, across mounts. */
+  topups?: number;
   at: number;
 }
 
@@ -82,6 +84,36 @@ export function getSearch(keyword: string): CachedSearch | null {
   if (!hit) return null;
   if (hit.v !== BUILD || Date.now() - (hit.at ?? 0) > SEARCH_TTL_MS) return null;
   return hit;
+}
+
+/**
+ * Merge scroll-appended reels back into the cached search.
+ *
+ * Deliberately does NOT re-stamp `at`: the TTL runs from the moment of the
+ * search, and refreshing it on every append would let a feed outlive the
+ * window the rest of the app assumes.
+ *
+ * `topups` rides along because the budget has to survive the Feed remount that
+ * happens on every trip into a reel — otherwise each visit hands the user two
+ * fresh billed Apify runs.
+ */
+export function appendResults(
+  keyword: string,
+  extra: Reel[],
+  topups: number
+): void {
+  const map = readMap<CachedSearch>(SEARCH_KEY);
+  const hit = map[norm(keyword)];
+  if (!hit) return;
+  const seen = new Set(hit.results.map((r) => r.shortCode));
+  hit.results = [...hit.results, ...extra.filter((r) => !seen.has(r.shortCode))];
+  hit.topups = Math.max(hit.topups ?? 0, topups);
+  writeMap(SEARCH_KEY, map);
+}
+
+/** Top-ups already billed for this niche in this tab. */
+export function getTopups(keyword: string): number {
+  return getSearch(keyword)?.topups ?? 0;
 }
 
 /** The feed the user was last looking at, for back-navigation. */

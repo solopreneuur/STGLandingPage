@@ -30,6 +30,7 @@ export default function ReelDetail({
   initialKeyword = "",
   initialBreakdown = null,
   autoDeep = false,
+  nicheReelCount = 0,
 }: {
   shortCode: string;
   paid: boolean;
@@ -42,6 +43,8 @@ export default function ReelDetail({
   initialBreakdown?: Breakdown | null;
   /** Arrived straight from a successful payment — reveal the synthesis. */
   autoDeep?: boolean;
+  /** Server-resolved size of the niche, for the CTA copy. */
+  nicheReelCount?: number;
 }) {
   const router = useRouter();
 
@@ -63,7 +66,13 @@ export default function ReelDetail({
     }
   }, [router]);
 
-  const [state, setState] = useState<State>({ s: "loading" });
+  // Seeded from the server props. Rendering "Loading…" while the finished
+  // breakdown sits in the same response wasted the whole point of the SSR.
+  const [state, setState] = useState<State>(
+    initialReel
+      ? { s: "ready", reel: initialReel, bd: initialBreakdown ?? "loading" }
+      : { s: "loading" }
+  );
   const [imgFailed, setImgFailed] = useState(false);
   const ran = useRef(false);
 
@@ -287,6 +296,7 @@ export default function ReelDetail({
                 paymentLink={paymentLink}
                 shortCode={shortCode}
                 autoOpen={autoDeep}
+                count={nicheReelCount}
               />
             </div>
 

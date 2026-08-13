@@ -4,6 +4,7 @@ import { normalize, getPlays } from "@/lib/normalize";
 import { filterAudience, applyVerdicts } from "@/lib/filter";
 import { USE_FIXTURES, fixtureItems } from "@/lib/fixtures";
 import { resolveNiche, writeReels, readReels } from "@/lib/cache";
+import { byConfidenceThenScore } from "@/lib/score";
 import type { Metric, Reel } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -52,7 +53,20 @@ export async function POST(req: Request) {
       if (niche) {
         const { reels } = await readReels(niche.id);
         const unseen = reels.filter((r) => !exclude.includes(r.shortCode));
-        if (unseen.length > 0) return NextResponse.json({ results: unseen });
+        if (unseen.length > 0) {
+          // Re-base onto the median the client is ALREADY rendering. These
+          // reels were scored inside readReels against the stored niche's
+          // median, and shipping them as-is puts a card labelled "3.0x" under
+          // a header median it is not 3.0x of — the same contradiction the
+          // single-median rescoring was written to remove.
+          const rebased = unseen
+            .map((r) => ({
+              ...r,
+              score: medianPlays > 0 ? r.plays / medianPlays : r.score,
+            }))
+            .sort(byConfidenceThenScore);
+          return NextResponse.json({ results: rebased });
+        }
       }
     }
 
@@ -87,7 +101,7 @@ export async function POST(req: Request) {
           filterReason: verdicts.get(i.shortCode)?.reason,
         };
       })
-      .sort((a, b) => b.score - a.score);
+      .sort(byConfidenceThenScore);
 
     // Write-through: one person scrolling deep enriches the niche for everyone
     // after them. Fire-and-forget so the response never waits on Postgres, and

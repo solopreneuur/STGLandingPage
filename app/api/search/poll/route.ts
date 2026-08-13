@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getRunStatus, getDatasetItems, startRun } from "@/lib/apify";
 import { normalize, mergeUnique } from "@/lib/normalize";
 import { filterAudience, applyVerdicts } from "@/lib/filter";
-import { scoreAndSort } from "@/lib/score";
+import { scoreAndSort, byConfidenceThenScore } from "@/lib/score";
 import { suggestVariants, MAX_ATTEMPTS, FALLBACK_SUGGESTIONS } from "@/lib/variants";
 import { USE_FIXTURES, fixtureItems, fixtureHasFeed } from "@/lib/fixtures";
 import type { ApifyItem, PollResponse } from "@/lib/types";
@@ -233,6 +233,9 @@ async function finish(
     applyVerdicts(headItems, verdicts).map((i) => i.shortCode)
   );
 
+  // Re-sorted below: scoreAndSort ran with an empty verdict map so every
+  // confidence was the 0.5 default and the borderline rule degenerated to
+  // plain score order.
   const results = head
     .filter((r) => keptCodes.has(r.shortCode))
     .map((r) => ({
@@ -243,7 +246,8 @@ async function finish(
       // every row this path writes lands with reason NULL and the niche reads
       // back as entirely unjudged.
       filterReason: verdicts.get(r.shortCode)?.reason,
-    }));
+    }))
+    .sort(byConfidenceThenScore);
 
   const pool = ordered.slice(FIRST_WINDOW);
 

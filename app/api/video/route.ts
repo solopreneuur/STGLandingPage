@@ -54,7 +54,13 @@ export async function GET(req: Request) {
     const headers = new Headers({
       "content-type": upstream.headers.get("content-type") ?? "video/mp4",
       "accept-ranges": "bytes",
-      "cache-control": "public, max-age=3600",
+      // Only a full, range-less response is safe to share from the edge. The
+      // body varies by the Range we forward, and marking those public let a
+      // POP answer a later Range request with a stored 200 plus a
+      // content-range header — a fragment presented as the complete file,
+      // which is exactly what breaks a player mid-seek. 206s are not edge
+      // cached anyway, so this costs nothing.
+      "cache-control": range ? "private, no-store" : "public, max-age=3600",
     });
     for (const h of ["content-range", "content-length"]) {
       const v = upstream.headers.get(h);

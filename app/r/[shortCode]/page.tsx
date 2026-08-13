@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { COOKIE_NAME, verifyToken } from "@/lib/gate";
-import { readReelWithNiche, readBreakdown } from "@/lib/cache";
+import { readReelWithNiche, readBreakdown, resolveNiche, readReels } from "@/lib/cache";
 import { formatMultiplier } from "@/lib/score";
 import ReelDetail from "@/components/ReelDetail";
 
@@ -64,6 +64,14 @@ export default async function ReelPage({
   const hit = await readReelWithNiche(shortCode);
   const breakdown = hit ? await readBreakdown(shortCode) : null;
 
+  // The niche's real reel count. GoDeeper otherwise counts a per-tab session
+  // list that a shared link never has.
+  let count = 0;
+  if (hit?.slug) {
+    const { niche } = await resolveNiche(hit.slug);
+    if (niche) count = (await readReels(niche.id)).reels.length;
+  }
+
   return (
     <ReelDetail
       shortCode={shortCode}
@@ -73,6 +81,7 @@ export default async function ReelPage({
       initialKeyword={hit?.slug ?? ""}
       initialBreakdown={breakdown}
       autoDeep={deep === "1"}
+      nicheReelCount={count}
     />
   );
 }

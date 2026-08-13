@@ -30,6 +30,7 @@ export default function GoDeeper({
   paymentLink,
   shortCode,
   autoOpen = false,
+  count,
 }: {
   keyword: string;
   reels: Reel[];
@@ -39,6 +40,8 @@ export default function GoDeeper({
   shortCode?: string;
   /** True right after purchase: open the synthesis instead of asking again. */
   autoOpen?: boolean;
+  /** Server-known reel count. `reels` is per-tab and is empty on a cold tab. */
+  count?: number;
 }) {
   const [state, setState] = useState<State>({ s: "idle" });
   const started = useRef(false);
@@ -83,8 +86,17 @@ export default function GoDeeper({
           GO DEEPER
         </span>
         <p className="mt-2.5 text-[1.05rem] leading-[1.35] font-medium text-white">
-          What&apos;s the pattern across all{" "}
-          <span className="font-num">{reels.length}</span> of these?
+          {/* A shared link, a bookmark or a new tab has no session, so the
+              client list is empty. Printing a literal 0 on the one screen that
+              asks for money read as broken. */}
+          {(count ?? reels.length) > 0 ? (
+            <>
+              What&apos;s the pattern across all{" "}
+              <span className="font-num">{count ?? reels.length}</span> of these?
+            </>
+          ) : (
+            <>What&apos;s the pattern across this whole niche?</>
+          )}
         </p>
         <p className="mt-2 text-[0.85rem] leading-[1.45] text-muted">
           One read across the whole niche — the formats winning right now, what

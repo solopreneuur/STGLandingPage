@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { safe } from "./db";
-import { median } from "./score";
+import { median, byConfidenceThenScore } from "./score";
 import type { Breakdown, Reel, SearchMeta } from "./types";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -254,7 +254,7 @@ export async function readReels(nicheId: string): Promise<CachedNiche> {
       const med = median(reels.map((r) => r.plays));
       const scored = reels
         .map((r) => ({ ...r, score: med > 0 ? r.plays / med : 0 }))
-        .sort((a, b) => b.score - a.score);
+        .sort(byConfidenceThenScore);
 
       return { reels: scored.slice(0, SERVE_CAP), medianPlays: med };
     },
