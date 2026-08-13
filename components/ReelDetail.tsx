@@ -5,7 +5,12 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Breakdown, Reel } from "@/lib/types";
 import { formatMultiplier, formatPlays } from "@/lib/score";
-import { findReel, getBreakdown, saveBreakdown } from "@/lib/session-cache";
+import {
+  findReel,
+  getBreakdown,
+  saveBreakdown,
+  pendingBreakdown,
+} from "@/lib/session-cache";
 import { thumbSrc } from "@/lib/thumb";
 import Rich from "./Rich";
 import GoDeeper from "./GoDeeper";
@@ -66,6 +71,16 @@ export default function ReelDetail({
       const cached = getBreakdown(reel.shortCode);
       if (cached) {
         setState({ s: "ready", reel, bd: cached });
+        return;
+      }
+      // Feed starts a prefetch after 1.5s of dwell. Tapping through lands here
+      // while that call is still open, so wait for the one already being paid
+      // for instead of starting a second identical Opus call.
+      const pending = pendingBreakdown(reel.shortCode);
+      if (pending) {
+        setState({ s: "ready", reel, bd: "loading" });
+        const bd = await pending;
+        setState({ s: "ready", reel, bd: bd ?? "failed" });
         return;
       }
     }

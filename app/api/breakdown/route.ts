@@ -1,10 +1,29 @@
 import { NextResponse } from "next/server";
 import { breakdownReel, type BreakdownInput } from "@/lib/breakdown";
+import type { Breakdown } from "@/lib/types";
 import { readBreakdown, writeBreakdown, readReelByCode } from "@/lib/cache";
 import { USE_FIXTURES } from "@/lib/fixtures";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
+
+/**
+ * Coalesce concurrent generations of the same reel within this instance.
+ *
+ * readBreakdown only helps once a row EXISTS, and Opus takes ~11s to make one,
+ * so every request arriving inside that window missed the cache and started
+ * its own call. One reel prefetched and then tapped, or two users landing on
+ * the same shared link, paid for it twice.
+ */
+const inflight = new Map<string, Promise<Breakdown>>();
+
+function once(key: string, make: () => Promise<Breakdown>): Promise<Breakdown> {
+  const open = inflight.get(key);
+  if (open) return open;
+  const p = make().finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
+}
 
 export async function POST(req: Request) {
   let input: BreakdownInput;
@@ -53,7 +72,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await breakdownReel(input);
+    const result = await once(input.shortCode, () => breakdownReel(input));
     // Write through before responding, but never let a cache failure lose a
     // breakdown the user already waited 13s for.
     if (!USE_FIXTURES) {

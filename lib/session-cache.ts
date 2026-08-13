@@ -104,8 +104,22 @@ export function loadResults(): CachedSearch | null {
  * real paid call.
  */
 const PREFETCH_CAP = 12;
-const inflightPrefetch = new Set<string>();
+/**
+ * Keyed by short code, holding the PROMISE rather than just a flag.
+ *
+ * A flag can only make a second caller give up; the promise lets it wait for
+ * the answer the first call is already paying for. Dwelling on a reel starts
+ * the prefetch at 1.5s, and tapping within the next ~10s used to issue a
+ * second concurrent POST — two Opus calls, one reel, one user, on the most
+ * ordinary interaction in the product.
+ */
+const inflightPrefetch = new Map<string, Promise<Breakdown | null>>();
 let prefetchCount = 0;
+
+/** The in-flight prefetch for this reel, if one is already paying for it. */
+export function pendingBreakdown(shortCode: string): Promise<Breakdown | null> | null {
+  return inflightPrefetch.get(shortCode) ?? null;
+}
 
 export function prefetchBreakdown(reel: {
   shortCode: string;
@@ -121,9 +135,8 @@ export function prefetchBreakdown(reel: {
   if (inflightPrefetch.has(reel.shortCode)) return;
   if (getBreakdown(reel.shortCode)) return;
 
-  inflightPrefetch.add(reel.shortCode);
   prefetchCount++;
-  void fetch("/api/breakdown", {
+  const p = fetch("/api/breakdown", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(reel),
@@ -131,9 +144,11 @@ export function prefetchBreakdown(reel: {
     .then((r) => (r.ok ? r.json() : null))
     .then((bd) => {
       if (bd) saveBreakdown(reel.shortCode, bd as Breakdown);
+      return (bd as Breakdown | null) ?? null;
     })
-    .catch(() => {})
+    .catch(() => null)
     .finally(() => inflightPrefetch.delete(reel.shortCode));
+  inflightPrefetch.set(reel.shortCode, p);
 }
 
 /** Mark a keyword as the most recently viewed feed without rewriting it. */
