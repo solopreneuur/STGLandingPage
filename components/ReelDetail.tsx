@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Breakdown, Reel } from "@/lib/types";
 import { formatMultiplier, formatPlays } from "@/lib/score";
@@ -15,6 +16,26 @@ type State =
   | { s: "ready"; reel: Reel; bd: "loading" | "failed" | Breakdown };
 
 export default function ReelDetail({ shortCode }: { shortCode: string }) {
+  const router = useRouter();
+
+  /**
+   * Go BACK rather than navigating to "/".
+   *
+   * A <Link href="/"> remounts SearchApp, which then has to rebuild the feed
+   * from cache — and any cache miss (a deploy changing the build id, a TTL
+   * expiry, a storage failure) dropped the user on the search overlay
+   * instead of their feed. History restores the live component state and
+   * cannot miss. Falls back to "/" only when there is no history to pop,
+   * e.g. someone opening a reel link directly.
+   */
+  const goBack = useCallback(() => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+    } else {
+      router.push("/");
+    }
+  }, [router]);
+
   const [state, setState] = useState<State>({ s: "loading" });
   const [imgFailed, setImgFailed] = useState(false);
   const ran = useRef(false);
@@ -119,12 +140,12 @@ export default function ReelDetail({ shortCode }: { shortCode: string }) {
         </a>
 
         <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between p-4">
-          <Link
-            href="/"
-            className="rounded-full bg-black/55 px-3.5 py-2 font-display text-[0.6rem] tracking-[0.16em] text-white no-underline backdrop-blur-sm"
+          <button
+            onClick={goBack}
+            className="rounded-full bg-black/55 px-3.5 py-2 font-display text-[0.6rem] tracking-[0.16em] text-white backdrop-blur-sm"
           >
             ← FEED
-          </Link>
+          </button>
           <span className="rounded-lg bg-accent px-3 py-1.5 font-num text-[1.2rem] leading-none text-black shadow-accent">
             {formatMultiplier(reel.score)}
           </span>

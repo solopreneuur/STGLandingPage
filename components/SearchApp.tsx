@@ -164,19 +164,6 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
           });
           break;
         case "done":
-          if (data.provisional && data.results?.length) {
-            // Feed is live now; keep polling so the full run can supply the
-            // real median and reveal multipliers.
-            setView({
-              k: "done",
-              results: data.results,
-              pool: data.pool,
-              datasets: data.datasets,
-              meta: data.meta,
-            });
-            params.set("painted", "1");
-            break;
-          }
           clearInflight();
           saveResults({
             keyword: q,
@@ -269,18 +256,11 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
       setView({ k: "failed" });
       return;
     }
-    const start = (await res.json()) as {
-      runId: string;
-      datasetId: string;
-      fastRunId?: string;
-      fastDatasetId?: string;
-    };
+    const start = (await res.json()) as { runId: string; datasetId: string };
 
     const params = new URLSearchParams({
       runId: start.runId,
       datasetId: start.datasetId,
-      fastRunId: start.fastRunId ?? "",
-      fastDatasetId: start.fastDatasetId ?? "",
       keyword: q,
       original: q,
       datasets: "",
@@ -338,7 +318,13 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
     // Only auto-run a keyword the user just gave us. A remembered one is
     // pre-filled but NOT executed: stg_niche is permanent, so auto-running it
     // made a keyword that hangs re-hang on every visit, across restarts.
-    if (fromStorage) {
+    //
+    // Coming back from a reel page is the exception — re-running there is
+    // exactly what the user expects, and the alternative (opening the search
+    // overlay) is what made "back to feed" look like it went to a menu.
+    const cameFromReel =
+      typeof document !== "undefined" && /\/r\//.test(document.referrer || "");
+    if (fromStorage && !cameFromReel) {
       setSearchOpen(true);
       return;
     }

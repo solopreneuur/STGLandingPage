@@ -4,22 +4,43 @@ const TOKEN = process.env.APIFY_TOKEN!;
 const ACTOR = process.env.APIFY_ACTOR_ID || "apify~instagram-search-scraper";
 const BASE = "https://api.apify.com/v2";
 
-/** Max 250 per keyword (Instagram's own ceiling). Verified in Phase 0. */
-export const SEARCH_LIMIT = Number(process.env.SEARCH_LIMIT ?? 50);
+/**
+ * Per-run size. Max 250 per keyword (Instagram's own ceiling).
+ *
+ * Measured: ~15s of every run is fixed container startup, then ~0.26s per
+ * item. So 25 lands around 21s versus 28s for 50 — a real saving — and the
+ * remainder is fetched with a top-up run only if the user scrolls that deep.
+ * Most sessions never need it, so most searches got ~7s faster and cheaper.
+ */
+export const SEARCH_LIMIT = Number(process.env.SEARCH_LIMIT ?? 25);
 
 /**
- * Size of the fast first run, fired in parallel with the full one.
+ * The parallel "fast paint" run is gone.
  *
- * Measured: searchLimit 12 -> 18.3s, searchLimit 50 -> 28.1s. Roughly 15s of
- * that is fixed container startup, so the marginal cost is ~0.25s per item
- * and splitting further buys nothing — you re-pay the 15s floor every time.
+ * It existed because the main run was 50 (28s) and a 12-item run landed at
+ * 18s. With the main run now 25 (~21s) the gap is only ~3s, which does not
+ * justify a second billed run or the provisional-multiplier machinery.
  *
- * The runs are NOT stably ordered (they returned different top items), so the
- * fast run is a separate sample rather than a prefix. That is why its results
- * are merged rather than treated as page 1, and why the multiplier waits for
- * the full set: a median over 12 popularity-skewed reels is badly wrong.
+ * Note the actor has no cursor: a second run RE-SAMPLES rather than paginates,
+ * and the two runs measurably returned different items. That is why top-ups
+ * add genuinely new reels instead of repeating page 1.
  */
-export const FAST_LIMIT = Number(process.env.FAST_LIMIT ?? 12);
+
+/** Sync run used for scroll-triggered top-ups. */
+export async function runSync(search: string, limit = SEARCH_LIMIT): Promise<ApifyItem[]> {
+  const res = await fetch(
+    `${BASE}/acts/${ACTOR}/run-sync-get-dataset-items?token=${TOKEN}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(buildInput(search, limit)),
+      signal: AbortSignal.timeout(55000),
+    }
+  );
+  if (!res.ok) return [];
+  const items = await res.json();
+  return Array.isArray(items) ? items : [];
+}
 
 /**
  * The actor's input contract, verified against the live build's input schema.

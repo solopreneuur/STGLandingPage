@@ -20,6 +20,8 @@ import { prefetchBreakdown } from "@/lib/session-cache";
 const LOOKAHEAD = 6;
 /** Reels judged per just-in-time call. ~3s, and it happens off-screen. */
 const WINDOW = 10;
+/** Extra Apify runs a single feed may trigger by scrolling. */
+const MAX_TOPUPS = 2;
 
 export default function Feed({
   results,
@@ -42,6 +44,7 @@ export default function Feed({
   const [loadingMore, setLoadingMore] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const inflight = useRef(false);
+  const toppedUp = useRef(0);
 
   // A new search replaces both lists.
   useEffect(() => {
@@ -57,8 +60,39 @@ export default function Feed({
    */
   useEffect(() => {
     if (inflight.current) return;
-    if (remaining.length === 0) return;
     if (active < slides.length - LOOKAHEAD) return;
+
+    // Pool exhausted: pull another sample from Apify rather than ending the
+    // feed. The initial run is only 25 precisely because most sessions never
+    // get here.
+    if (remaining.length === 0) {
+      if (toppedUp.current >= MAX_TOPUPS) return;
+      toppedUp.current++;
+      inflight.current = true;
+      setLoadingMore(true);
+      (async () => {
+        try {
+          const res = await fetch("/api/search/more", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              keyword,
+              exclude: slides.map((r) => r.shortCode),
+              medianPlays: meta.medianPlays,
+              metric: meta.metric,
+            }),
+          });
+          const { results: more } = (await res.json()) as { results: Reel[] };
+          if (more?.length) setSlides((prev) => [...prev, ...more]);
+        } catch {
+          // No more reels is an acceptable end state.
+        } finally {
+          setLoadingMore(false);
+          inflight.current = false;
+        }
+      })();
+      return;
+    }
 
     inflight.current = true;
     setLoadingMore(true);
@@ -96,7 +130,7 @@ export default function Feed({
         inflight.current = false;
       }
     })();
-  }, [active, slides.length, remaining, datasets]);
+  }, [active, slides, remaining, datasets, keyword, meta.medianPlays, meta.metric]);
 
   useEffect(() => {
     const root = scroller.current;
