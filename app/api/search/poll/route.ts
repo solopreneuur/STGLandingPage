@@ -14,8 +14,15 @@ export const runtime = "nodejs";
 // expensive poll is the terminal one (dataset fetch + one filter call).
 export const maxDuration = 120;
 
-/** Below this we try to widen rather than ship a thin, noisy median. */
-const MIN_RESULTS = 30;
+/**
+ * Below this we widen rather than ship a thin, noisy median.
+ *
+ * MUST stay well under what a single run can yield. It was 30 while
+ * SEARCH_LIMIT was 50; after dropping to 25 a normal run normalises to ~20,
+ * which is below 30, so EVERY search widened and took twice as long. Caught
+ * in a live production test: "home gym" widened to "gym" at 40s.
+ */
+const MIN_RESULTS = 8;
 
 /**
  * Judged up front; everything beyond this is filtered on scroll.

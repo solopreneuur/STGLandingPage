@@ -312,7 +312,15 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
         fromStorage = Boolean(kw);
       } catch {}
     }
-    if (!kw) return;
+    if (!kw) {
+      // Cold arrival with no niche. Decided HERE, in the boot effect, which
+      // reads fresh values — the separate effect that used to do this ran in
+      // the same commit against render-1 state (view "idle", keyword "") and
+      // popped the overlay even when boot had just restored a cached feed or
+      // resumed a running poll.
+      setSearchOpen(true);
+      return;
+    }
     setKeyword(kw);
 
     // Only auto-run a keyword the user just gave us. A remembered one is
@@ -333,9 +341,6 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
 
   // Cold arrival with no niche: open the overlay rather than showing a bare
   // input on an empty screen.
-  useEffect(() => {
-    if (view.k === "idle" && !keyword) setSearchOpen(true);
-  }, [view.k, keyword]);
 
   useEffect(() => () => { abort.current = true; }, []);
 
@@ -433,7 +438,10 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
         </div>
       )}
 
-      {searchOpen && (
+      {/* Never cover a running search that has no feed behind it: the overlay
+          is not closable in that state, which hid ProgressRail and the retry
+          card and read as a permanent "Working...". */}
+      {searchOpen && (hasFeed || !busy) && (
         <SearchOverlay
           initial={keyword}
           busy={busy}
