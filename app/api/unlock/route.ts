@@ -9,7 +9,23 @@ import {
 
 export const runtime = "nodejs";
 
-const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://studythegame.app";
+/**
+ * Redirect back to the origin that actually served this request, not a
+ * hardcoded site url.
+ *
+ * Stripe's redirect target is fixed to the production domain, but the route
+ * itself gets hit on localhost and on preview deploys too (paste the
+ * session_id at any origin). Hardcoding NEXT_PUBLIC_SITE_URL sent every
+ * environment to production — locally that lands on a dead page, and from a
+ * preview it would kick a paying user onto the old waitlist site.
+ */
+function originOf(req: Request): string {
+  const h = req.headers;
+  const proto = h.get("x-forwarded-proto") ?? new URL(req.url).protocol.replace(":", "");
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  if (host) return `${proto}://${host}`;
+  return process.env.NEXT_PUBLIC_SITE_URL || "https://studythegame.app";
+}
 
 function decodeRef(ref: string | null | undefined): string | null {
   if (!ref) return null;
@@ -23,6 +39,7 @@ function decodeRef(ref: string | null | undefined): string | null {
 }
 
 export async function GET(req: Request) {
+  const SITE = originOf(req);
   const url = new URL(req.url);
   const sessionId = url.searchParams.get("session_id");
   const dev = url.searchParams.get("dev");
