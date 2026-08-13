@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 const TITLE = "StudyTheGame — Find and break down the best videos in your niche";
@@ -68,6 +69,7 @@ export default function RootLayout({
         {/* No width constraint here: the results feed is full-viewport.
             Pages that want the narrow column wrap themselves in <Shell>. */}
         <div className="relative z-[2]">{children}</div>
+        <Analytics />
       </body>
     </html>
   );
