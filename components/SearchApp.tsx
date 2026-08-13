@@ -7,6 +7,44 @@ import SearchOverlay from "./SearchOverlay";
 import ProgressRail, { type Stage } from "./ProgressRail";
 import { saveResults, loadResults, getSearch } from "@/lib/session-cache";
 
+/**
+ * The in-flight search, so backing out and returning resumes the existing
+ * Apify run instead of abandoning it and starting a second one. Without this
+ * the user pays another ~30s (and we pay another run) for work already
+ * underway.
+ */
+const INFLIGHT_KEY = "stg_inflight";
+type Inflight = { keyword: string; params: string; at: number };
+
+function saveInflight(keyword: string, params: URLSearchParams) {
+  try {
+    sessionStorage.setItem(
+      INFLIGHT_KEY,
+      JSON.stringify({ keyword, params: params.toString(), at: Date.now() })
+    );
+  } catch {}
+}
+function clearInflight() {
+  try {
+    sessionStorage.removeItem(INFLIGHT_KEY);
+  } catch {}
+}
+function loadInflight(): Inflight | null {
+  try {
+    const raw = sessionStorage.getItem(INFLIGHT_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Inflight;
+    // Apify runs finish well inside 3 minutes; older than that is stale.
+    return Date.now() - v.at < 3 * 60 * 1000 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Transient failures retry quietly. A user must never see an error for a blip. */
+const MAX_TRANSIENT = 6;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 type View =
   | { k: "idle" }
   | { k: "running"; stage: Stage; found: number; widenedTo?: string }
@@ -22,69 +60,8 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
   const [searchOpen, setSearchOpen] = useState(false);
   const abort = useRef(false);
 
-  const run = useCallback(async (kw: string) => {
-    const q = kw.trim();
-    if (q.length < 2) return;
-    abort.current = false;
-    setKeyword(q);
-    setSearchOpen(false);
-
-    // Repeat search in the same tab: serve it instantly rather than paying
-    // ~$0.34 and ~40s to recompute the same answer.
-    const hit = getSearch(q);
-    if (hit?.results?.length) {
-      setView({
-        k: "done",
-        results: hit.results,
-        pool: hit.pool ?? [],
-        datasets: hit.datasets ?? "",
-        meta: hit.meta,
-      });
-      saveResults(hit);
-      return;
-    }
-
-    setView({ k: "running", stage: "pulling", found: 0 });
-    try {
-      localStorage.setItem("stg_niche", q);
-    } catch {}
-
-    let res: Response;
-    try {
-      res = await fetch("/api/search/start", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ keyword: q }),
-      });
-    } catch {
-      setView({ k: "failed" });
-      return;
-    }
-    if (!res.ok) {
-      setView({ k: "failed" });
-      return;
-    }
-    const start = (await res.json()) as {
-      runId: string;
-      datasetId: string;
-      fastRunId?: string;
-      fastDatasetId?: string;
-    };
-
-    // Widening spans multiple polls, so all state rides in the query string
-    // and is echoed straight back from each response.
-    let params = new URLSearchParams({
-      runId: start.runId,
-      datasetId: start.datasetId,
-      fastRunId: start.fastRunId ?? "",
-      fastDatasetId: start.fastDatasetId ?? "",
-      keyword: q,
-      original: q,
-      datasets: "",
-      queue: "",
-      used: q,
-    });
-
+  const poll = useCallback(async (q: string, startParams: URLSearchParams) => {
+    let params = startParams;
     /**
      * Hard bounds on the poll loop.
      *
@@ -93,41 +70,55 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
      * session, a 502, an edge error — matched nothing, fell through, slept,
      * and retried forever. That is the "Working..." that never finishes.
      */
-    const deadline = Date.now() + 4 * 60 * 1000;
+    const deadline = Date.now() + 3 * 60 * 1000;
     let ticks = 0;
+    let transient = 0;
 
     for (;;) {
       if (abort.current) return;
       if (Date.now() > deadline || ++ticks > 150) {
+        clearInflight();
         setView({ k: "failed" });
         return;
       }
+
+      saveInflight(q, params);
 
       let data: PollResponse & Record<string, string>;
       try {
         const r = await fetch(`/api/search/poll?${params.toString()}`);
         if (r.status === 401) {
-          // Access cookie is gone or invalid. Reloading re-runs the server
-          // gate, which shows the paywall instead of spinning forever.
+          // Cookie gone or invalid. Reload so the server gate decides, rather
+          // than spinning here forever.
+          clearInflight();
           window.location.href = "/";
           return;
         }
-        if (!r.ok) {
+        if (!r.ok) throw new Error(String(r.status));
+        data = await r.json();
+      } catch {
+        // A blip is not a failure. Back off and keep going; only give up
+        // after several consecutive failures.
+        if (++transient > MAX_TRANSIENT) {
+          clearInflight();
           setView({ k: "failed" });
           return;
         }
-        data = await r.json();
-      } catch {
-        setView({ k: "failed" });
-        return;
+        await sleep(1200 * transient);
+        continue;
       }
       if (abort.current) return;
 
-      // Unknown/absent phase must terminate, never fall through to the sleep.
       if (!data || typeof data.phase !== "string") {
-        setView({ k: "failed" });
-        return;
+        if (++transient > MAX_TRANSIENT) {
+          clearInflight();
+          setView({ k: "failed" });
+          return;
+        }
+        await sleep(1200 * transient);
+        continue;
       }
+      transient = 0;
 
       switch (data.phase) {
         case "pulling":
@@ -164,6 +155,7 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
             params.set("painted", "1");
             break;
           }
+          clearInflight();
           saveResults({
             keyword: q,
             results: data.results,
@@ -180,18 +172,95 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
           });
           return;
         case "empty":
+          clearInflight();
           setView({ k: "empty", suggestions: data.suggestions ?? [] });
           return;
         case "failed":
+          clearInflight();
           setView({ k: "failed" });
           return;
         default:
+          clearInflight();
           setView({ k: "failed" });
           return;
       }
       await new Promise((r) => setTimeout(r, POLL_MS));
     }
+
   }, []);
+
+  const run = useCallback(async (kw: string) => {
+    const q = kw.trim();
+    if (q.length < 2) return;
+    abort.current = false;
+    setKeyword(q);
+    setSearchOpen(false);
+
+    // Repeat search in the same tab: serve it instantly rather than paying
+    // ~$0.34 and ~40s to recompute the same answer.
+    const hit = getSearch(q);
+    if (hit?.results?.length) {
+      setView({
+        k: "done",
+        results: hit.results,
+        pool: hit.pool ?? [],
+        datasets: hit.datasets ?? "",
+        meta: hit.meta,
+      });
+      saveResults(hit);
+      return;
+    }
+
+    setView({ k: "running", stage: "pulling", found: 0 });
+    try {
+      localStorage.setItem("stg_niche", q);
+    } catch {}
+
+    // Retry quietly with backoff. Showing "try again" on the first blip is
+    // what made the error card appear five times before a search worked.
+    let res: Response | null = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (abort.current) return;
+      try {
+        res = await fetch("/api/search/start", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ keyword: q }),
+        });
+        if (res.status === 401) {
+          window.location.href = "/";
+          return;
+        }
+        if (res.ok) break;
+      } catch {
+        res = null;
+      }
+      await sleep(800 * (attempt + 1));
+    }
+    if (!res || !res.ok) {
+      setView({ k: "failed" });
+      return;
+    }
+    const start = (await res.json()) as {
+      runId: string;
+      datasetId: string;
+      fastRunId?: string;
+      fastDatasetId?: string;
+    };
+
+    const params = new URLSearchParams({
+      runId: start.runId,
+      datasetId: start.datasetId,
+      fastRunId: start.fastRunId ?? "",
+      fastDatasetId: start.fastDatasetId ?? "",
+      keyword: q,
+      original: q,
+      datasets: "",
+      queue: "",
+      used: q,
+    });
+    await poll(q, params);
+  }, [poll]);
 
   /**
    * ONE mount decision. Previously the restore effect and the auto-run effect
@@ -217,6 +286,16 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
       return;
     }
 
+    // Rejoin a search already in progress rather than abandoning it and
+    // paying for a second Apify run.
+    const flight = loadInflight();
+    if (flight) {
+      setKeyword(flight.keyword);
+      setView({ k: "running", stage: "pulling", found: 0 });
+      void poll(flight.keyword, new URLSearchParams(flight.params));
+      return;
+    }
+
     let kw = initialKeyword;
     if (!kw) {
       try {
@@ -227,7 +306,7 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
       setKeyword(kw);
       void run(kw);
     }
-  }, [initialKeyword, run]);
+  }, [initialKeyword, run, poll]);
 
   // Cold arrival with no niche: open the overlay rather than showing a bare
   // input on an empty screen.
