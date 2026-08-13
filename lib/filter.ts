@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ApifyItem, FilterVerdict } from "./types";
 import { USE_FIXTURES, fixtureVerdicts } from "./fixtures";
+import { decodeDeep } from "./unescape";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = process.env.MODEL_FILTER || "claude-sonnet-5";
@@ -177,8 +178,10 @@ async function filterChunk(items: ApifyItem[]): Promise<FilterVerdict[]> {
   if (!text || text.type !== "text") throw new Error("no text block");
   const parsed = JSON.parse(text.text) as { verdicts: FilterVerdict[] };
 
-  return (parsed.verdicts ?? []).filter(
-    (v): v is FilterVerdict => typeof v?.shortCode === "string"
+  return decodeDeep(
+    (parsed.verdicts ?? []).filter(
+      (v): v is FilterVerdict => typeof v?.shortCode === "string"
+    )
   );
 }
 

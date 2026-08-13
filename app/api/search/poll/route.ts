@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { COOKIE_NAME, verifyToken } from "@/lib/gate";
 import { getRunStatus, getDatasetItems, startRun } from "@/lib/apify";
 import { normalize, mergeUnique } from "@/lib/normalize";
 import { filterAudience, applyVerdicts } from "@/lib/filter";
@@ -25,6 +27,13 @@ const csv = (s: string | null) => (s ? s.split(",").filter(Boolean) : []);
  * immediately with the new ids for the client to carry forward.
  */
 export async function GET(req: Request) {
+  // Searches spend real Apify and Anthropic money. Ungated, anyone could hit
+  // this endpoint directly on production and run up the bill without paying.
+  const jar = await cookies();
+  if (!verifyToken(jar.get(COOKIE_NAME)?.value)) {
+    return NextResponse.json({ error: "locked" }, { status: 401 });
+  }
+
   const url = new URL(req.url);
   const runId = url.searchParams.get("runId") ?? "";
   const datasetId = url.searchParams.get("datasetId") ?? "";

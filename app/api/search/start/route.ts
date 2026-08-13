@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { COOKIE_NAME, verifyToken } from "@/lib/gate";
 import { startRun } from "@/lib/apify";
 import { USE_FIXTURES } from "@/lib/fixtures";
 
@@ -6,6 +8,13 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  // Searches spend real Apify and Anthropic money. Ungated, anyone could hit
+  // this endpoint directly on production and run up the bill without paying.
+  const jar = await cookies();
+  if (!verifyToken(jar.get(COOKIE_NAME)?.value)) {
+    return NextResponse.json({ error: "locked" }, { status: 401 });
+  }
+
   let keyword = "";
   try {
     const body = await req.json();

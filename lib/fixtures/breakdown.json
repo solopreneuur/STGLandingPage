@@ -1,8 +1,17 @@
 {
   "shortCode": "DWrrhG8EcSS",
-  "image_used": true,
-  "hook_read": "\"POV: how working out feels when you own a home gym\" is a feeling-claim, not an information promise \\u2014 it asks you to stay for a mood rather than an answer. The real hook isn't the text, it's the frame underneath it: an empty, spotless garage with a $2k+ functional trainer and zero people waiting for it. For anyone who's queued for a cable station, that's the entire emotional payload delivered pre-scroll. The weakness: no tension or stakes, so there's no reason to reach the end. 32k plays on a visually strong frame reads like a hook that captures but doesn't hold.",
-  "mechanism": "Aspiration-as-content with the product baked into the composition instead of pitched. He's shot mid-rep in a static hold, head down, no face-to-camera, no talking \\u2014 which removes the creator as the subject and promotes the equipment to co-star. Note the logo placement: MAJOR FITNESS sits at the exact height his lowered head frames, dead center, unavoidable. Second impression bottom-right on the plate stack. Two brand hits in one frame with zero ad language. The all-white outfit against matte black steel is a deliberate value-contrast choice that makes the rack read as premium hardware rather than garage clutter \\u2014 this is lookbook lighting logic applied to gym content.",
-  "format": "Single fixed-camera wide, one location, subject centered in the rack's negative space, caption locked top-third with heavy black stroke for small-screen legibility. Probably a slow push or slow-mo cut over trending audio. No cuts to face, no voiceover, no rep count \\u2014 the whole thing runs on ambient vibe, which is why it loops without friction but also why it doesn't compound into saves or shares.",
-  "steal_this": "Compose so the brand mark lands in the frame gap your body creates \\u2014 his bowed head opens a window and the logo fills it. You get a clean product impression that reads as accidental. Then pair it with the invisible flex: the aspirational detail isn't the gear, it's the absence of other people. Sell the empty room, not the machine."
+  "hook_read": {
+    "punch": "The POV text sells a feeling while the frame sells **gym envy**.",
+    "detail": "Text sits high and clear of the machine, so the eye lands on the promise first, then drops into a spotless garage setup with the full rack, plates, and window light all in frame. The subject is mid-rep with head down, no eye contact, which reads as unstaged private training rather than a sponsored demo. That gap between casual claim and aspirational setup is what stops the scroll."
+  },
+  "mechanism": {
+    "punch": "Viewers stay to **audit the gym**, not to learn the exercise.",
+    "detail": "The wide static shot makes the room the subject: rack, cable stack, color-coded plates, clean floor. Home gym audiences replay to price it out and spot what they are missing, which inflates watch time far past a form tutorial. The all-white outfit against black steel keeps the body readable at thumbnail size and doubles as a visual signature."
+  },
+  "format": {
+    "punch": "One locked wide shot, no cuts, **text does all the framing**.",
+    "detail": "Static tripod at chest height in a garage with natural window light needs zero production, so the format is infinitely repeatable with a new POV line each time. No cuts means no edit fatigue and clean looping, which suits a short vibe clip. The brand logo is centered on the rack, so the sponsor placement is passive and never interrupts the watch."
+  },
+  "steal_this": "Shoot one locked wide of your full setup and let a POV text line carry the hook.",
+  "image_used": true
 }

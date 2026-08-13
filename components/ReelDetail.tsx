@@ -6,6 +6,8 @@ import type { Breakdown, Reel } from "@/lib/types";
 import { formatMultiplier, formatPlays } from "@/lib/score";
 import { findReel } from "@/lib/session-cache";
 import { thumbSrc } from "@/lib/thumb";
+import Rich from "./Rich";
+import type { Tier } from "@/lib/types";
 
 type State =
   | { s: "loading" }
@@ -167,11 +169,11 @@ export default function ReelDetail({ shortCode }: { shortCode: string }) {
                 STEAL THIS
               </span>
               <p className="mt-2.5 text-[1.05rem] leading-[1.4] font-medium text-white">
-                {bd.steal_this}
+                <Rich text={bd.steal_this} />
               </p>
             </div>
 
-            <dl className="mt-7">
+            <div className="mt-7">
               {(
                 [
                   ["hook_read", "HOOK"],
@@ -179,19 +181,14 @@ export default function ReelDetail({ shortCode }: { shortCode: string }) {
                   ["format", "FORMAT"],
                 ] as const
               ).map(([key, label], i) => (
-                <div
+                <Section
                   key={key}
-                  className={i > 0 ? "mt-5 border-t border-hair pt-5" : ""}
-                >
-                  <dt className="font-display text-[0.58rem] tracking-[0.16em] text-muted">
-                    {label}
-                  </dt>
-                  <dd className="mt-1.5 text-[0.9rem] leading-[1.5] text-white/85">
-                    {bd[key]}
-                  </dd>
-                </div>
+                  label={label}
+                  tier={bd[key]}
+                  divided={i > 0}
+                />
               ))}
-            </dl>
+            </div>
 
             {!bd.image_used && (
               <p className="mt-6 text-[0.7rem] text-muted">
@@ -201,6 +198,58 @@ export default function ReelDetail({ shortCode }: { shortCode: string }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Two-tier section. The punch is the verdict and is always on screen; the
+ * detail is the reasoning and is COLLAPSED, not truncated, so the full text
+ * is exactly one tap away. Four equal paragraphs was the thing that made the
+ * page read as a wall of text.
+ */
+function Section({
+  label,
+  tier,
+  divided,
+}: {
+  label: string;
+  tier: Tier;
+  divided: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const hasDetail = Boolean(tier?.detail?.trim());
+
+  return (
+    <div className={divided ? "mt-5 border-t border-hair pt-5" : ""}>
+      <div className="font-display text-[0.58rem] tracking-[0.16em] text-muted">
+        {label}
+      </div>
+      <p className="mt-1.5 text-[0.95rem] leading-[1.45] text-white">
+        <Rich text={tier?.punch ?? ""} />
+      </p>
+
+      {hasDetail && (
+        <>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            className="mt-2 flex items-center gap-1.5 text-[0.78rem] text-muted transition-colors hover:text-white"
+          >
+            <span
+              className={`inline-block transition-transform ${open ? "rotate-90" : ""}`}
+            >
+              ›
+            </span>
+            {open ? "less" : "more"}
+          </button>
+          {open && (
+            <p className="mt-2 text-[0.875rem] leading-[1.55] text-white/70">
+              <Rich text={tier.detail} />
+            </p>
+          )}
+        </>
+      )}
     </div>
   );
 }

@@ -49,11 +49,12 @@ export function fixtureVerdicts(): Map<string, FilterVerdict> {
 }
 
 export function fixtureBreakdown(): Breakdown {
+  const empty = { punch: "(fixture unavailable)", detail: "" };
   return read<Breakdown>("breakdown.json", {
-    hook_read: "(fixture unavailable)",
-    mechanism: "",
-    format: "",
-    steal_this: "",
+    hook_read: empty,
+    mechanism: empty,
+    format: empty,
+    steal_this: "(fixture unavailable)",
     image_used: false,
   });
 }

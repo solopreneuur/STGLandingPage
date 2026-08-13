@@ -132,10 +132,20 @@ export type FilterVerdict = z.infer<typeof FilterVerdictSchema>;
    Breakdown — the product's core verb. Strict JSON out.
    ============================================================ */
 
+/** Two-tier section: verdict always visible, reasoning one tap away. */
+export const TierSchema = z.object({
+  /** ONE sentence, <=15 words. The verdict. */
+  punch: z.string(),
+  /** 2-3 sentences. Collapsed, never truncated. */
+  detail: z.string(),
+});
+export type Tier = z.infer<typeof TierSchema>;
+
 export const BreakdownSchema = z.object({
-  hook_read: z.string(),
-  mechanism: z.string(),
-  format: z.string(),
+  hook_read: TierSchema,
+  mechanism: TierSchema,
+  format: TierSchema,
+  /** Hero card. Punch only, no detail. */
   steal_this: z.string(),
 });
 
