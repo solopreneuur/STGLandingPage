@@ -185,6 +185,33 @@ export function getActiveIndex(keyword: string): number {
   }
 }
 
+/**
+ * Sound preference, remembered for the tab.
+ *
+ * Kept out of component state so it survives the Feed remount that happens on
+ * feed -> reel -> back; otherwise every trip into a breakdown silently muted
+ * the feed again.
+ */
+const SOUND_KEY = "stg_sound";
+
+export function getSoundOn(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return sessionStorage.getItem(SOUND_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveSoundOn(on: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(SOUND_KEY, on ? "1" : "0");
+  } catch {
+    // Not worth an error; the feed just starts muted next time.
+  }
+}
+
 /** Mark a keyword as the most recently viewed feed without rewriting it. */
 export function markLastViewed(keyword: string): void {
   try {

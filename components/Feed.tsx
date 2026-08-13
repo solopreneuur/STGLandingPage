@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Reel, SearchMeta } from "@/lib/types";
 import { formatMultiplier, formatPlays } from "@/lib/score";
 import { thumbSrc, videoSrc, VIDEO_ENABLED } from "@/lib/thumb";
@@ -9,6 +9,8 @@ import {
   prefetchBreakdown,
   saveActiveIndex,
   getActiveIndex,
+  getSoundOn,
+  saveSoundOn,
 } from "@/lib/session-cache";
 import GoDeeper from "./GoDeeper";
 
@@ -51,6 +53,24 @@ export default function Feed({
   const [slides, setSlides] = useState<Reel[]>(results);
   const [remaining, setRemaining] = useState<Reel[]>(pool);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Feed-level, not per-slide: unmuting once should hold as you keep scrolling.
+  const [soundOn, setSoundOn] = useState(false);
+
+  // Read after mount so the server and first client render agree.
+  useEffect(() => setSoundOn(getSoundOn()), []);
+
+  const toggleSound = useCallback(() => {
+    setSoundOn((on) => {
+      saveSoundOn(!on);
+      return !on;
+    });
+  }, []);
+
+  /** Autoplay with sound was refused; reflect reality rather than lying. */
+  const forceMute = useCallback(() => {
+    saveSoundOn(false);
+    setSoundOn(false);
+  }, []);
   const scroller = useRef<HTMLDivElement>(null);
   const inflight = useRef(false);
   const toppedUp = useRef(0);
@@ -203,9 +223,19 @@ export default function Feed({
             {keyword.toUpperCase()}
           </span>
         </button>
-        <span className="pointer-events-auto rounded-full bg-black/55 px-3 py-2 text-[0.7rem] text-white/70 backdrop-blur-sm">
-          <span className="font-num text-white">{active + 1}</span>/{slides.length}{remaining.length > 0 ? "+" : ""}
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleSound}
+            aria-label={soundOn ? "Mute" : "Unmute"}
+            aria-pressed={soundOn}
+            className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-[0.9rem] text-white backdrop-blur-sm"
+          >
+            {soundOn ? "🔊" : "🔇"}
+          </button>
+          <span className="pointer-events-auto rounded-full bg-black/55 px-3 py-2 text-[0.7rem] text-white/70 backdrop-blur-sm">
+            <span className="font-num text-white">{active + 1}</span>/{slides.length}{remaining.length > 0 ? "+" : ""}
+          </span>
+        </div>
       </div>
 
       {loadingMore && (
@@ -229,6 +259,8 @@ export default function Feed({
             index={i}
             isActive={i === active}
             medianPlays={meta.medianPlays}
+            soundOn={soundOn}
+            onAutoplayBlocked={forceMute}
           />
         ))}
         {remaining.length === 0 && slides.length > 0 && (
@@ -253,11 +285,15 @@ function Slide({
   index,
   isActive,
   medianPlays,
+  soundOn,
+  onAutoplayBlocked,
 }: {
   reel: Reel;
   index: number;
   isActive: boolean;
   medianPlays: number;
+  soundOn: boolean;
+  onAutoplayBlocked: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [imgFailed, setImgFailed] = useState(false);
@@ -286,15 +322,24 @@ function Slide({
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    if (isActive) {
-      // Muted autoplay is the only kind browsers allow without a gesture —
-      // same as Instagram's own default.
-      v.play().catch(() => {});
-    } else {
+    if (!isActive) {
       v.pause();
       v.currentTime = 0;
+      return;
     }
-  }, [isActive]);
+    // Muted autoplay is the only kind browsers allow without a gesture. Once
+    // the user has tapped the sound control that gesture exists, so unmuted
+    // playback is allowed — but Safari in particular can still refuse on a
+    // later slide, and a silent refusal would leave the speaker icon claiming
+    // sound that is not playing.
+    v.muted = !soundOn;
+    v.play().catch(() => {
+      if (v.muted) return;
+      v.muted = true;
+      onAutoplayBlocked();
+      v.play().catch(() => {});
+    });
+  }, [isActive, soundOn, onAutoplayBlocked]);
 
   return (
     <section
@@ -306,6 +351,8 @@ function Slide({
           ref={videoRef}
           src={videoSrc(reel.videoUrl)}
           poster={poster || undefined}
+          // The effect above owns the muted property; this is only the initial
+          // value, and it must stay true so first autoplay is never refused.
           muted
           loop
           playsInline
