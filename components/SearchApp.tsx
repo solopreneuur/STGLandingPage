@@ -5,7 +5,7 @@ import type { PollResponse, Reel, SearchMeta } from "@/lib/types";
 import Feed from "./Feed";
 import SearchOverlay from "./SearchOverlay";
 import ProgressRail, { type Stage } from "./ProgressRail";
-import { saveResults, loadResults, getSearch } from "@/lib/session-cache";
+import { saveResults, loadResults, getSearch, markLastViewed } from "@/lib/session-cache";
 
 /**
  * The in-flight search, so backing out and returning resumes the existing
@@ -231,7 +231,10 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
         datasets: hit.datasets ?? "",
         meta: hit.meta,
       });
-      saveResults(hit);
+      // Deliberately NOT re-saving: writing on read re-stamps `at` and
+      // pre-breaks the TTL, which is the same self-refreshing-timestamp bug
+      // that made the in-flight entry immortal. Only mark it as most-recent.
+      markLastViewed(q);
       return;
     }
 
@@ -322,15 +325,24 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
     }
 
     let kw = initialKeyword;
+    let fromStorage = false;
     if (!kw) {
       try {
         kw = localStorage.getItem("stg_niche") ?? "";
+        fromStorage = Boolean(kw);
       } catch {}
     }
-    if (kw) {
-      setKeyword(kw);
-      void run(kw);
+    if (!kw) return;
+    setKeyword(kw);
+
+    // Only auto-run a keyword the user just gave us. A remembered one is
+    // pre-filled but NOT executed: stg_niche is permanent, so auto-running it
+    // made a keyword that hangs re-hang on every visit, across restarts.
+    if (fromStorage) {
+      setSearchOpen(true);
+      return;
     }
+    void run(kw);
   }, [initialKeyword, run, poll]);
 
   // Cold arrival with no niche: open the overlay rather than showing a bare

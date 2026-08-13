@@ -13,11 +13,18 @@ import type { Breakdown, Reel, SearchMeta } from "./types";
  * sessionStorage is per-tab and cleared on close, which matches data that is
  * already ephemeral by design and keeps the server stateless.
  */
+const BUILD = process.env.NEXT_PUBLIC_BUILD || "dev";
+
+/** Cached searches older than this are refetched rather than replayed. */
+const SEARCH_TTL_MS = 30 * 60 * 1000;
+
 const SEARCH_KEY = "stg_searches";
 const BREAKDOWN_KEY = "stg_breakdowns";
 const LAST_KEY = "stg_last";
 
 export interface CachedSearch {
+  /** Build that wrote this entry. Mismatch => discard. */
+  v?: string;
   keyword: string;
   results: Reel[];
   /** Unjudged remainder, filtered just-in-time on scroll. */
@@ -56,18 +63,25 @@ const norm = (k: string) => k.trim().toLowerCase();
 
 /* ---------------- searches ---------------- */
 
-export function saveResults(v: Omit<CachedSearch, "at">): void {
+export function saveResults(v: Omit<CachedSearch, "at" | "v">): void {
   const map = readMap<CachedSearch>(SEARCH_KEY);
-  map[norm(v.keyword)] = { ...v, at: Date.now() };
+  map[norm(v.keyword)] = { ...v, v: BUILD, at: Date.now() };
   writeMap(SEARCH_KEY, map);
   try {
     sessionStorage.setItem(LAST_KEY, norm(v.keyword));
   } catch {}
 }
 
-/** Cached search for a keyword — used to answer a repeat search instantly. */
+/**
+ * Cached search for a keyword. Rejected if written by a different build or
+ * older than the TTL — a stale payload replaying across deploys is what makes
+ * a shipped fix look like it never landed.
+ */
 export function getSearch(keyword: string): CachedSearch | null {
-  return readMap<CachedSearch>(SEARCH_KEY)[norm(keyword)] ?? null;
+  const hit = readMap<CachedSearch>(SEARCH_KEY)[norm(keyword)];
+  if (!hit) return null;
+  if (hit.v !== BUILD || Date.now() - (hit.at ?? 0) > SEARCH_TTL_MS) return null;
+  return hit;
 }
 
 /** The feed the user was last looking at, for back-navigation. */
@@ -75,10 +89,20 @@ export function loadResults(): CachedSearch | null {
   try {
     const last = sessionStorage.getItem(LAST_KEY);
     if (!last) return null;
-    return readMap<CachedSearch>(SEARCH_KEY)[last] ?? null;
+    const hit = readMap<CachedSearch>(SEARCH_KEY)[last];
+    if (!hit) return null;
+    if (hit.v !== BUILD || Date.now() - (hit.at ?? 0) > SEARCH_TTL_MS) return null;
+    return hit;
   } catch {
     return null;
   }
+}
+
+/** Mark a keyword as the most recently viewed feed without rewriting it. */
+export function markLastViewed(keyword: string): void {
+  try {
+    sessionStorage.setItem(LAST_KEY, norm(keyword));
+  } catch {}
 }
 
 export function findReel(shortCode: string): { reel: Reel; keyword: string } | null {
@@ -92,12 +116,18 @@ export function findReel(shortCode: string): { reel: Reel; keyword: string } | n
 
 /* ---------------- breakdowns ---------------- */
 
+type StoredBreakdown = Breakdown & { v?: string };
+
 export function getBreakdown(shortCode: string): Breakdown | null {
-  return readMap<Breakdown>(BREAKDOWN_KEY)[shortCode] ?? null;
+  const hit = readMap<StoredBreakdown>(BREAKDOWN_KEY)[shortCode];
+  // The breakdown SHAPE changed between builds (flat strings -> punch/detail).
+  // Replaying an old one renders blank sections, so version it too.
+  if (!hit || hit.v !== BUILD) return null;
+  return hit;
 }
 
 export function saveBreakdown(shortCode: string, bd: Breakdown): void {
-  const map = readMap<Breakdown>(BREAKDOWN_KEY);
-  map[shortCode] = bd;
+  const map = readMap<StoredBreakdown>(BREAKDOWN_KEY);
+  map[shortCode] = { ...bd, v: BUILD };
   writeMap(BREAKDOWN_KEY, map);
 }
