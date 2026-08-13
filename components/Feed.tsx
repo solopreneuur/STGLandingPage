@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Reel, SearchMeta } from "@/lib/types";
 import { formatMultiplier, formatPlays } from "@/lib/score";
 import { thumbSrc, videoSrc, VIDEO_ENABLED } from "@/lib/thumb";
+import { prefetchBreakdown } from "@/lib/session-cache";
 
 /**
  * Full-viewport snap feed, one reel per screen — the Reels/TikTok pattern
@@ -179,6 +180,24 @@ function Slide({
   const [expanded, setExpanded] = useState(false);
   const poster = thumbSrc(reel.displayUrl);
   const canPlay = VIDEO_ENABLED && Boolean(reel.videoUrl);
+
+  // Start the breakdown only once the reel has been on screen a moment, so
+  // scrolling straight past a reel never pays for one.
+  useEffect(() => {
+    if (!isActive) return;
+    const t = setTimeout(() => {
+      prefetchBreakdown({
+        shortCode: reel.shortCode,
+        caption: reel.caption,
+        plays: reel.plays,
+        score: reel.score,
+        ownerUsername: reel.ownerUsername,
+        timestamp: reel.timestamp,
+        displayUrl: reel.displayUrl,
+      });
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [isActive, reel]);
 
   useEffect(() => {
     const v = videoRef.current;

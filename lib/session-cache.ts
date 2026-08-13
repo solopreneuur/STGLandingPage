@@ -98,6 +98,44 @@ export function loadResults(): CachedSearch | null {
   }
 }
 
+/**
+ * Kick off a breakdown while the user is watching the reel, so tapping is
+ * instant instead of a ~15s wait. Capped per session because each one is a
+ * real paid call.
+ */
+const PREFETCH_CAP = 12;
+const inflightPrefetch = new Set<string>();
+let prefetchCount = 0;
+
+export function prefetchBreakdown(reel: {
+  shortCode: string;
+  caption: string;
+  plays: number;
+  score: number;
+  ownerUsername: string;
+  timestamp: string;
+  displayUrl: string;
+}): void {
+  if (typeof window === "undefined") return;
+  if (prefetchCount >= PREFETCH_CAP) return;
+  if (inflightPrefetch.has(reel.shortCode)) return;
+  if (getBreakdown(reel.shortCode)) return;
+
+  inflightPrefetch.add(reel.shortCode);
+  prefetchCount++;
+  void fetch("/api/breakdown", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(reel),
+  })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((bd) => {
+      if (bd) saveBreakdown(reel.shortCode, bd as Breakdown);
+    })
+    .catch(() => {})
+    .finally(() => inflightPrefetch.delete(reel.shortCode));
+}
+
 /** Mark a keyword as the most recently viewed feed without rewriting it. */
 export function markLastViewed(keyword: string): void {
   try {

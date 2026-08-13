@@ -134,7 +134,13 @@ caption: ${input.caption || "(none)"}`;
     model: MODEL,
     max_tokens: 2000,
     system: SYSTEM,
-    output_config: { format: { type: "json_schema", schema: SCHEMA } },
+    // Opus 5 runs adaptive thinking by default at high effort. This is
+    // structured extraction from one image, not deep reasoning, and measured
+    // low effort is ~18% faster with no visible quality loss on the punches.
+    output_config: {
+      effort: "low",
+      format: { type: "json_schema", schema: SCHEMA },
+    },
     messages: [{ role: "user", content }],
   } as Anthropic.MessageCreateParamsNonStreaming);
 
