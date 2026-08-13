@@ -12,7 +12,17 @@ const BASE = "https://api.apify.com/v2";
  * remainder is fetched with a top-up run only if the user scrolls that deep.
  * Most sessions never need it, so most searches got ~7s faster and cheaper.
  */
-export const SEARCH_LIMIT = Number(process.env.SEARCH_LIMIT ?? 25);
+export const SEARCH_LIMIT = Number(process.env.SEARCH_LIMIT ?? 12);
+
+/**
+ * Background pull size, for the seed script and weekly cron.
+ *
+ * Deliberately much larger than SEARCH_LIMIT: the live limit is small because
+ * a user is watching a spinner, but nobody waits on a background job. Sharing
+ * one constant would make every cached niche permanently thin to save time no
+ * user ever experiences.
+ */
+export const SEED_LIMIT = Number(process.env.SEED_LIMIT ?? 50);
 
 /**
  * The parallel "fast paint" run is gone.

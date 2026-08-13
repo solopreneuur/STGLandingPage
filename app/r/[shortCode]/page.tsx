@@ -1,5 +1,4 @@
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
 import { COOKIE_NAME, verifyToken } from "@/lib/gate";
 import ReelDetail from "@/components/ReelDetail";
 
@@ -10,9 +9,17 @@ export default async function ReelPage({
 }: {
   params: Promise<{ shortCode: string }>;
 }) {
+  // Breakdowns are FREE in v2.1. `paid` only controls whether the
+  // "Go deeper" CTA offers the synthesis or reveals it.
   const jar = await cookies();
-  if (!verifyToken(jar.get(COOKIE_NAME)?.value)) redirect("/");
+  const paid = verifyToken(jar.get(COOKIE_NAME)?.value);
 
   const { shortCode } = await params;
-  return <ReelDetail shortCode={shortCode} />;
+  return (
+    <ReelDetail
+      shortCode={shortCode}
+      paid={paid}
+      paymentLink={process.env.STRIPE_PAYMENT_LINK_URL ?? "#"}
+    />
+  );
 }

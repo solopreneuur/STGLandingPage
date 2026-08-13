@@ -1,19 +1,12 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { breakdownReel, type BreakdownInput } from "@/lib/breakdown";
-import { COOKIE_NAME, verifyToken } from "@/lib/gate";
+import { readBreakdown, writeBreakdown } from "@/lib/cache";
+import { USE_FIXTURES } from "@/lib/fixtures";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 export async function POST(req: Request) {
-  // Breakdowns cost real money per call — gate them the same way the UI is
-  // gated, so an unpaid caller can't run up the Anthropic bill.
-  const jar = await cookies();
-  if (!verifyToken(jar.get(COOKIE_NAME)?.value)) {
-    return NextResponse.json({ error: "locked" }, { status: 401 });
-  }
-
   let input: BreakdownInput;
   try {
     const b = await req.json();
@@ -34,8 +27,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
 
+  // Cache first, keyed by reel GLOBALLY. A breakdown generated while someone
+  // browsed "gym" is already warm for someone browsing "workout", and it
+  // survives every weekly niche refresh. ~50ms instead of ~13s of Opus.
+  if (!USE_FIXTURES) {
+    const hit = await readBreakdown(input.shortCode);
+    if (hit) return NextResponse.json(hit);
+  }
+
   try {
     const result = await breakdownReel(input);
+    // Write through before responding, but never let a cache failure lose a
+    // breakdown the user already waited 13s for.
+    if (!USE_FIXTURES) {
+      void writeBreakdown(
+        input.shortCode,
+        result,
+        process.env.MODEL_BREAKDOWN || "claude-opus-5"
+      );
+    }
     return NextResponse.json(result);
   } catch (err) {
     console.error("[breakdown]", input.shortCode, err);

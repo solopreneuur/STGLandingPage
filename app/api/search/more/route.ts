@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { COOKIE_NAME, verifyToken } from "@/lib/gate";
 import { runSync } from "@/lib/apify";
 import { normalize, getPlays } from "@/lib/normalize";
 import { filterAudience, applyVerdicts } from "@/lib/filter";
@@ -24,11 +22,6 @@ export const maxDuration = 120;
  * net new reels.
  */
 export async function POST(req: Request) {
-  const jar = await cookies();
-  if (!verifyToken(jar.get(COOKIE_NAME)?.value)) {
-    return NextResponse.json({ error: "locked" }, { status: 401 });
-  }
-
   let keyword = "";
   let exclude: string[] = [];
   let medianPlays = 0;

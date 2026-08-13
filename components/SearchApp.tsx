@@ -72,7 +72,17 @@ type View =
 
 const POLL_MS = 2000;
 
-export default function SearchApp({ initialKeyword }: { initialKeyword: string }) {
+export default function SearchApp({
+  initialKeyword,
+  paid,
+  chips,
+  paymentLink,
+}: {
+  initialKeyword: string;
+  paid: boolean;
+  chips: string[];
+  paymentLink: string;
+}) {
   const [keyword, setKeyword] = useState(initialKeyword);
   const [view, setView] = useState<View>({ k: "idle" });
   const [searchOpen, setSearchOpen] = useState(false);
@@ -256,7 +266,34 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
       setView({ k: "failed" });
       return;
     }
-    const start = (await res.json()) as { runId: string; datasetId: string };
+    const start = (await res.json()) as {
+      runId?: string;
+      datasetId?: string;
+      cached?: boolean;
+      results?: Reel[];
+      pool?: Reel[];
+      datasets?: string;
+      meta?: SearchMeta;
+    };
+
+    // Warm cache: the whole feed came back on the start call, so skip polling
+    // entirely. This is the ~30-60s -> ~1s path.
+    if (start.cached && start.results?.length) {
+      const payload = {
+        keyword: q,
+        results: start.results,
+        pool: start.pool ?? [],
+        datasets: start.datasets ?? "",
+        meta: start.meta as SearchMeta,
+      };
+      saveResults(payload);
+      setView({ k: "done", ...payload });
+      return;
+    }
+    if (!start.runId || !start.datasetId) {
+      setView({ k: "failed" });
+      return;
+    }
 
     const params = new URLSearchParams({
       runId: start.runId,
@@ -356,6 +393,8 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
           datasets={view.datasets}
           meta={view.meta}
           keyword={keyword}
+          paid={paid}
+          paymentLink={paymentLink}
           onOpenSearch={() => setSearchOpen(true)}
         />
       )}
@@ -444,6 +483,7 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
       {searchOpen && (hasFeed || !busy) && (
         <SearchOverlay
           initial={keyword}
+          chips={chips}
           busy={busy}
           onSearch={(kw) => void run(kw)}
           onClose={() => setSearchOpen(false)}

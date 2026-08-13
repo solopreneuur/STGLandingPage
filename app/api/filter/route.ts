@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { COOKIE_NAME, verifyToken } from "@/lib/gate";
 import { getDatasetItems } from "@/lib/apify";
 import { filterAudience } from "@/lib/filter";
 import { USE_FIXTURES, fixtureVerdicts } from "@/lib/fixtures";
@@ -24,11 +22,6 @@ const MAX_WINDOW = 20;
  * (or be trusted with) the raw payload.
  */
 export async function POST(req: Request) {
-  const jar = await cookies();
-  if (!verifyToken(jar.get(COOKIE_NAME)?.value)) {
-    return NextResponse.json({ error: "locked" }, { status: 401 });
-  }
-
   let datasets: string[] = [];
   let shortCodes: string[] = [];
   try {

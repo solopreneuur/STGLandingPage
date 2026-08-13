@@ -1,20 +1,17 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { COOKIE_NAME, verifyToken } from "@/lib/gate";
 import { startRun } from "@/lib/apify";
 import { USE_FIXTURES } from "@/lib/fixtures";
+import { resolveNiche, isFresh, readReels, bumpHit } from "@/lib/cache";
+import { median } from "@/lib/score";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+/**
+ * FREE. Un-gated as of v2.1 — the feed and per-reel breakdowns are the free
+ * product; only /api/synthesis is paid.
+ */
 export async function POST(req: Request) {
-  // Searches spend real Apify and Anthropic money. Ungated, anyone could hit
-  // this endpoint directly on production and run up the bill without paying.
-  const jar = await cookies();
-  if (!verifyToken(jar.get(COOKIE_NAME)?.value)) {
-    return NextResponse.json({ error: "locked" }, { status: 401 });
-  }
-
   let keyword = "";
   try {
     const body = await req.json();
@@ -27,7 +24,43 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "bad_keyword" }, { status: 400 });
   }
 
-  // Offline: synthetic ids. The poll route resolves them from fixtures.
+  // ---- cache first ----
+  // A warm niche never touches Apify: results come straight back on this
+  // request, so the client skips polling entirely (~1s instead of ~30-60s).
+  if (!USE_FIXTURES) {
+    try {
+      const { niche } = await resolveNiche(keyword);
+      if (niche && isFresh(niche)) {
+        const results = await readReels(niche.id);
+        if (results.length > 0) {
+          void bumpHit(niche.id);
+          const plays = results.map((r) => r.plays);
+          return NextResponse.json({
+            cached: true,
+            keyword: niche.slug,
+            nicheId: niche.id,
+            results,
+            pool: [],
+            datasets: "",
+            meta: {
+              pulled: results.length,
+              kept: results.length,
+              dropped: 0,
+              medianPlays: median(plays),
+              metric: "plays",
+              filtered: true,
+              partial: false,
+              keywordsUsed: [niche.slug],
+            },
+          });
+        }
+      }
+    } catch (err) {
+      // Cache is an optimisation. Any failure falls through to the live path.
+      console.error("[search/start] cache lookup failed:", err);
+    }
+  }
+
   if (USE_FIXTURES) {
     return NextResponse.json({
       runId: `fixture-${encodeURIComponent(keyword)}`,

@@ -8,6 +8,8 @@ import { formatMultiplier, formatPlays } from "@/lib/score";
 import { findReel, getBreakdown, saveBreakdown } from "@/lib/session-cache";
 import { thumbSrc } from "@/lib/thumb";
 import Rich from "./Rich";
+import GoDeeper from "./GoDeeper";
+import { loadResults } from "@/lib/session-cache";
 import type { Tier } from "@/lib/types";
 
 type State =
@@ -15,7 +17,15 @@ type State =
   | { s: "gone" }
   | { s: "ready"; reel: Reel; bd: "loading" | "failed" | Breakdown };
 
-export default function ReelDetail({ shortCode }: { shortCode: string }) {
+export default function ReelDetail({
+  shortCode,
+  paid,
+  paymentLink,
+}: {
+  shortCode: string;
+  paid: boolean;
+  paymentLink: string;
+}) {
   const router = useRouter();
 
   /**
@@ -220,6 +230,15 @@ export default function ReelDetail({ shortCode }: { shortCode: string }) {
                   divided={i > 0}
                 />
               ))}
+            </div>
+
+            <div className="mt-8">
+              <GoDeeper
+                keyword={loadResults()?.keyword ?? ""}
+                reels={loadResults()?.results ?? []}
+                paid={paid}
+                paymentLink={paymentLink}
+              />
             </div>
 
             {!bd.image_used && (

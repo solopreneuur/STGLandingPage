@@ -6,6 +6,7 @@ import type { Reel, SearchMeta } from "@/lib/types";
 import { formatMultiplier, formatPlays } from "@/lib/score";
 import { thumbSrc, videoSrc, VIDEO_ENABLED } from "@/lib/thumb";
 import { prefetchBreakdown } from "@/lib/session-cache";
+import GoDeeper from "./GoDeeper";
 
 /**
  * Full-viewport snap feed, one reel per screen — the Reels/TikTok pattern
@@ -29,6 +30,8 @@ export default function Feed({
   datasets,
   meta,
   keyword,
+  paid,
+  paymentLink,
   onOpenSearch,
 }: {
   results: Reel[];
@@ -36,6 +39,8 @@ export default function Feed({
   datasets: string;
   meta: SearchMeta;
   keyword: string;
+  paid: boolean;
+  paymentLink: string;
   onOpenSearch: () => void;
 }) {
   const [active, setActive] = useState(0);
@@ -184,6 +189,8 @@ export default function Feed({
         ref={scroller}
         className="h-dvh snap-y snap-mandatory overflow-y-scroll overscroll-contain"
       >
+        {/* The paid artifact sits at the END of the feed: offered only after
+            they have actually seen the reels it reads across. */}
         {slides.map((reel, i) => (
           <Slide
             key={reel.shortCode}
@@ -193,6 +200,18 @@ export default function Feed({
             medianPlays={meta.medianPlays}
           />
         ))}
+        {remaining.length === 0 && slides.length > 0 && (
+          <section className="flex min-h-dvh w-full snap-start snap-always flex-col justify-center bg-bg px-6 py-12">
+            <div className="mx-auto w-full max-w-[480px]">
+              <GoDeeper
+                keyword={keyword}
+                reels={slides}
+                paid={paid}
+                paymentLink={paymentLink}
+              />
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

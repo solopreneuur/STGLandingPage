@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { COOKIE_NAME, verifyToken } from "@/lib/gate";
 import { getRunStatus, getDatasetItems, startRun } from "@/lib/apify";
 import { normalize, mergeUnique } from "@/lib/normalize";
 import { filterAudience, applyVerdicts } from "@/lib/filter";
@@ -8,6 +6,8 @@ import { scoreAndSort } from "@/lib/score";
 import { suggestVariants, MAX_ATTEMPTS, FALLBACK_SUGGESTIONS } from "@/lib/variants";
 import { USE_FIXTURES, fixtureItems, fixtureHasFeed } from "@/lib/fixtures";
 import type { ApifyItem, PollResponse } from "@/lib/types";
+import { upsertNiche, writeReels, normalizeSlug } from "@/lib/cache";
+import { USE_FIXTURES as _FIXTURES } from "@/lib/fixtures";
 
 export const runtime = "nodejs";
 // Vercel Fluid gives this project 300s. We stay well under it: the only
@@ -17,12 +17,12 @@ export const maxDuration = 120;
 /**
  * Below this we widen rather than ship a thin, noisy median.
  *
- * MUST stay well under what a single run can yield. It was 30 while
- * SEARCH_LIMIT was 50; after dropping to 25 a normal run normalises to ~20,
- * which is below 30, so EVERY search widened and took twice as long. Caught
- * in a live production test: "home gym" widened to "gym" at 40s.
+ * MUST stay well under what a single run can yield. At SEARCH_LIMIT 50 this
+ * was 30; dropping the pull to 25 without moving it made EVERY search widen
+ * and take twice as long (caught live: "home gym" widened to "gym" at 40s).
+ * The pull is now 12, normalising to ~9-10, so this sits at 5.
  */
-const MIN_RESULTS = 8;
+const MIN_RESULTS = 5;
 
 /**
  * Judged up front; everything beyond this is filtered on scroll.
@@ -43,13 +43,6 @@ const csv = (s: string | null) => (s ? s.split(",").filter(Boolean) : []);
  * immediately with the new ids for the client to carry forward.
  */
 export async function GET(req: Request) {
-  // Searches spend real Apify and Anthropic money. Ungated, anyone could hit
-  // this endpoint directly on production and run up the bill without paying.
-  const jar = await cookies();
-  if (!verifyToken(jar.get(COOKIE_NAME)?.value)) {
-    return NextResponse.json({ error: "locked" }, { status: 401 });
-  }
-
   const url = new URL(req.url);
   const runId = url.searchParams.get("runId") ?? "";
   const datasetId = url.searchParams.get("datasetId") ?? "";
@@ -244,10 +237,27 @@ async function finish(
     .filter((r) => keptCodes.has(r.shortCode))
     .map((r) => ({ ...r, confidence: verdicts.get(r.shortCode)?.confidence ?? 0.5 }));
 
+  const pool = ordered.slice(FIRST_WINDOW);
+
+  // Write through so the next person searching this niche skips Apify
+  // entirely. Fire-and-forget: a cache write must never delay or fail the
+  // response the user is waiting on.
+  if (!_FIXTURES) {
+    void (async () => {
+      try {
+        const slug = normalizeSlug(usedList[0] ?? original);
+        const nicheId = await upsertNiche(slug);
+        if (nicheId) await writeReels(nicheId, [...results, ...pool]);
+      } catch (err) {
+        console.error("[search/poll] cache write failed:", err);
+      }
+    })();
+  }
+
   return NextResponse.json({
     phase: "done",
     results,
-    pool: ordered.slice(FIRST_WINDOW),
+    pool,
     datasets: datasets.join(","),
     meta: {
       pulled,

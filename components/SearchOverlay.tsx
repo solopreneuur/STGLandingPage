@@ -23,12 +23,15 @@ const SUGGESTED = [
  */
 export default function SearchOverlay({
   initial,
+  chips,
   busy,
   onSearch,
   onClose,
   closable,
 }: {
   initial: string;
+  /** Cached niches, most-hit first. Tapping one is instant by definition. */
+  chips: string[];
   busy: boolean;
   onSearch: (kw: string) => void;
   onClose: () => void;
@@ -97,10 +100,10 @@ export default function SearchOverlay({
         </form>
 
         <p className="mt-9 font-display text-[0.6rem] tracking-[0.16em] text-muted">
-          TRY
+          {chips.length > 0 ? "OR EXPLORE" : "TRY"}
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          {SUGGESTED.map((s) => (
+          {(chips.length > 0 ? chips : SUGGESTED).map((s) => (
             <button
               key={s}
               disabled={busy}
