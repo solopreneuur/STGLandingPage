@@ -42,6 +42,7 @@ export async function GET(req: Request) {
   const datasets = csv(url.searchParams.get("datasets"));
   const queue = csv(url.searchParams.get("queue"));
   const used = csv(url.searchParams.get("used"));
+  const stage = url.searchParams.get("stage") ?? "";
   const usedList = used.length ? used : [keyword];
 
   if (!runId || !datasetId || !keyword) {
@@ -54,6 +55,7 @@ export async function GET(req: Request) {
       return widen({ original, usedList, queue, datasets, collected: [] });
     }
     const items = fixtureItems(keyword);
+    if (stage !== "filter") return partial(items, datasets, usedList);
     return finish(items, datasets, usedList, original);
   }
 
@@ -103,10 +105,41 @@ export async function GET(req: Request) {
     return widen({ original, usedList, queue, datasets: allDatasets, collected });
   }
 
+  // Render the feed BEFORE filtering. The filter is ~12s of the wait and the
+  // reels are already scrollable without it, so make the user wait for the
+  // refinement rather than for first paint.
+  if (stage !== "filter") return partial(collected, allDatasets, usedList);
+
   return finish(collected, allDatasets, usedList, original);
 }
 
 /* ------------------------------------------------------------------ */
+
+/** Scored, unfiltered, sorted. Every item is borderline until judged. */
+function partial(
+  collected: ApifyItem[],
+  datasets: string[],
+  usedList: string[]
+): NextResponse {
+  const { items, metric, pulled, dropped } = normalize(collected as unknown[]);
+  const { results, medianPlays } = scoreAndSort(items, metric, new Map());
+  return NextResponse.json({
+    phase: "partial",
+    results,
+    meta: {
+      pulled,
+      kept: results.length,
+      dropped,
+      medianPlays,
+      metric,
+      filtered: false,
+      partial: true,
+      keywordsUsed: usedList,
+    },
+    datasets: datasets.join(","),
+    used: usedList.join(","),
+  } satisfies PollResponse);
+}
 
 async function widen(args: {
   original: string;

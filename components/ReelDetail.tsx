@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Breakdown, Reel } from "@/lib/types";
 import { formatMultiplier, formatPlays } from "@/lib/score";
-import { findReel } from "@/lib/session-cache";
+import { findReel, getBreakdown, saveBreakdown } from "@/lib/session-cache";
 import { thumbSrc } from "@/lib/thumb";
 import Rich from "./Rich";
 import type { Tier } from "@/lib/types";
@@ -19,7 +19,16 @@ export default function ReelDetail({ shortCode }: { shortCode: string }) {
   const [imgFailed, setImgFailed] = useState(false);
   const ran = useRef(false);
 
-  const fetchBreakdown = useCallback(async (reel: Reel) => {
+  const fetchBreakdown = useCallback(async (reel: Reel, force = false) => {
+    // Each breakdown is a real Opus call (~16s, ~$0.02). Without this, going
+    // back into a reel you already opened paid for it a second time.
+    if (!force) {
+      const cached = getBreakdown(reel.shortCode);
+      if (cached) {
+        setState({ s: "ready", reel, bd: cached });
+        return;
+      }
+    }
     setState({ s: "ready", reel, bd: "loading" });
     try {
       const res = await fetch("/api/breakdown", {
@@ -36,7 +45,9 @@ export default function ReelDetail({ shortCode }: { shortCode: string }) {
         }),
       });
       if (!res.ok) throw new Error(String(res.status));
-      setState({ s: "ready", reel, bd: (await res.json()) as Breakdown });
+      const bd = (await res.json()) as Breakdown;
+      saveBreakdown(reel.shortCode, bd);
+      setState({ s: "ready", reel, bd });
     } catch {
       setState({ s: "ready", reel, bd: "failed" });
     }
@@ -151,7 +162,7 @@ export default function ReelDetail({ shortCode }: { shortCode: string }) {
           <div className="flex items-center justify-between rounded-[14px] border border-hair p-4">
             <span className="text-[0.875rem] text-muted">Breakdown failed.</span>
             <button
-              onClick={() => void fetchBreakdown(reel)}
+              onClick={() => void fetchBreakdown(reel, true)}
               className="font-display text-[0.62rem] tracking-[0.16em] text-accent"
             >
               RETRY

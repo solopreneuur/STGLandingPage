@@ -5,7 +5,7 @@ import type { PollResponse, Reel, SearchMeta } from "@/lib/types";
 import Feed from "./Feed";
 import SearchOverlay from "./SearchOverlay";
 import ProgressRail, { type Stage } from "./ProgressRail";
-import { saveResults, loadResults } from "@/lib/session-cache";
+import { saveResults, loadResults, getSearch } from "@/lib/session-cache";
 
 type View =
   | { k: "idle" }
@@ -22,28 +22,22 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
   const [searchOpen, setSearchOpen] = useState(false);
   const abort = useRef(false);
 
-  // Restore the last feed when returning from a breakdown page, so the back
-  // button doesn't silently cost another search.
-  useEffect(() => {
-    const cached = loadResults();
-    if (cached?.results?.length) {
-      setKeyword(cached.keyword);
-      setView({ k: "done", results: cached.results, meta: cached.meta });
-      return;
-    }
-    if (initialKeyword) return;
-    try {
-      const saved = localStorage.getItem("stg_niche");
-      if (saved) setKeyword(saved);
-    } catch {}
-  }, [initialKeyword]);
-
   const run = useCallback(async (kw: string) => {
     const q = kw.trim();
     if (q.length < 2) return;
     abort.current = false;
     setKeyword(q);
     setSearchOpen(false);
+
+    // Repeat search in the same tab: serve it instantly rather than paying
+    // ~$0.34 and ~40s to recompute the same answer.
+    const hit = getSearch(q);
+    if (hit?.results?.length) {
+      setView({ k: "done", results: hit.results, meta: hit.meta });
+      saveResults({ keyword: q, results: hit.results, meta: hit.meta });
+      return;
+    }
+
     setView({ k: "running", stage: "pulling", found: 0 });
     try {
       localStorage.setItem("stg_niche", q);
@@ -111,6 +105,13 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
             used: data.used,
           });
           break;
+        case "partial":
+          // Show the feed now; keep polling so the filter can refine it.
+          setView({ k: "done", results: data.results, meta: data.meta });
+          params.set("stage", "filter");
+          params.set("datasets", data.datasets);
+          params.set("used", data.used);
+          break;
         case "done":
           saveResults({ keyword: q, results: data.results, meta: data.meta });
           setView({ k: "done", results: data.results, meta: data.meta });
@@ -122,17 +123,39 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
           setView({ k: "failed" });
           return;
       }
-      await new Promise((r) => setTimeout(r, POLL_MS));
+      if (data.phase !== "partial") await new Promise((r) => setTimeout(r, POLL_MS));
     }
   }, []);
 
-  // Auto-run on arrival if they told us their niche before paying.
-  const autoRan = useRef(false);
+  /**
+   * ONE mount decision. Previously the restore effect and the auto-run effect
+   * both ran in the same commit, so auto-run read a stale view.k === "idle"
+   * and kicked off a fresh search before the restore landed — which is why
+   * coming back from a breakdown re-fetched everything.
+   */
+  const booted = useRef(false);
   useEffect(() => {
-    if (autoRan.current || !keyword || view.k !== "idle") return;
-    autoRan.current = true;
-    void run(keyword);
-  }, [keyword, view.k, run]);
+    if (booted.current) return;
+    booted.current = true;
+
+    const cached = loadResults();
+    if (cached?.results?.length) {
+      setKeyword(cached.keyword);
+      setView({ k: "done", results: cached.results, meta: cached.meta });
+      return;
+    }
+
+    let kw = initialKeyword;
+    if (!kw) {
+      try {
+        kw = localStorage.getItem("stg_niche") ?? "";
+      } catch {}
+    }
+    if (kw) {
+      setKeyword(kw);
+      void run(kw);
+    }
+  }, [initialKeyword, run]);
 
   // Cold arrival with no niche: open the overlay rather than showing a bare
   // input on an empty screen.
