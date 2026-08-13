@@ -9,7 +9,7 @@ import { findReel, getBreakdown, saveBreakdown } from "@/lib/session-cache";
 import { thumbSrc } from "@/lib/thumb";
 import Rich from "./Rich";
 import GoDeeper from "./GoDeeper";
-import { loadResults } from "@/lib/session-cache";
+import { getSearch } from "@/lib/session-cache";
 import type { Tier } from "@/lib/types";
 
 type State =
@@ -21,10 +21,19 @@ export default function ReelDetail({
   shortCode,
   paid,
   paymentLink,
+  initialReel = null,
+  initialKeyword = "",
+  initialBreakdown = null,
 }: {
   shortCode: string;
   paid: boolean;
   paymentLink: string;
+  /** Server-resolved from Postgres. Null only if the reel isn't cached yet. */
+  initialReel?: Reel | null;
+  /** The niche slug this reel belongs to, for the "Go deeper" CTA. */
+  initialKeyword?: string;
+  /** Server-resolved breakdown, so a shared link renders without a round trip. */
+  initialBreakdown?: Breakdown | null;
 }) {
   const router = useRouter();
 
@@ -84,16 +93,36 @@ export default function ReelDetail({
     }
   }, []);
 
+  const [keyword, setKeyword] = useState(initialKeyword);
+
   useEffect(() => {
     if (ran.current) return;
     ran.current = true;
+
+    // Server-resolved first. The session cache is a per-tab optimisation, not
+    // the source of truth — treating it as the source is what made every
+    // shared or reopened link a dead end.
+    if (initialReel) {
+      if (initialBreakdown) {
+        saveBreakdown(shortCode, initialBreakdown);
+        setState({ s: "ready", reel: initialReel, bd: initialBreakdown });
+      } else {
+        void fetchBreakdown(initialReel);
+      }
+      return;
+    }
+
     const hit = findReel(shortCode);
     if (!hit) {
       setState({ s: "gone" });
       return;
     }
+    // findReel already knows which niche this reel came from; reading it back
+    // out of loadResults() instead could name a DIFFERENT niche the user
+    // searched more recently, and charge their $1 against that one.
+    if (hit.keyword) setKeyword(hit.keyword);
     void fetchBreakdown(hit.reel);
-  }, [shortCode, fetchBreakdown]);
+  }, [shortCode, fetchBreakdown, initialReel, initialBreakdown]);
 
   if (state.s === "loading") {
     return <div className="py-24 text-center text-sm text-muted">Loading…</div>;
@@ -234,8 +263,8 @@ export default function ReelDetail({
 
             <div className="mt-8">
               <GoDeeper
-                keyword={loadResults()?.keyword ?? ""}
-                reels={loadResults()?.results ?? []}
+                keyword={keyword}
+                reels={getSearch(keyword)?.results ?? []}
                 paid={paid}
                 paymentLink={paymentLink}
               />

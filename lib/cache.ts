@@ -287,6 +287,34 @@ export async function readReelByCode(shortCode: string): Promise<Reel | null> {
   );
 }
 
+/**
+ * A reel plus the niche it belongs to.
+ *
+ * The reel page needs both: the reel to render server-side, and the slug so
+ * the "Go deeper" CTA offers the right niche. Reading it from the session
+ * cache instead is what made every shared link a dead end.
+ */
+export async function readReelWithNiche(
+  shortCode: string
+): Promise<{ reel: Reel; slug: string } | null> {
+  return safe<{ reel: Reel; slug: string } | null>(
+    "readReelWithNiche",
+    async (c) => {
+      const { data } = await c
+        .from("reels")
+        .select("payload, niches(slug)")
+        .eq("short_code", shortCode)
+        .eq("archived", false)
+        .limit(1)
+        .maybeSingle();
+      const row = data as { payload: Reel; niches?: { slug: string } } | null;
+      if (!row?.payload) return null;
+      return { reel: row.payload, slug: row.niches?.slug ?? "" };
+    },
+    null
+  );
+}
+
 export async function upsertNiche(slug: string): Promise<string | null> {
   return safe<string | null>(
     "upsertNiche",
