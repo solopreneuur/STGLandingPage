@@ -14,7 +14,7 @@ export const runtime = "nodejs";
  * images per month (~20 searches at 50 reels), and the optimizer fetches from
  * Vercel IPs — the exact thing being blocked.
  */
-const ALLOWED_HOST = /(^|\.)(cdninstagram\.com|fbcdn\.net)$/i;
+import { ALLOWED_HOST, MEDIA_FETCH_INIT } from "@/lib/hosts";
 
 export async function GET(req: Request) {
   const raw = new URL(req.url).searchParams.get("u");
@@ -35,6 +35,8 @@ export async function GET(req: Request) {
 
   try {
     const upstream = await fetch(target.toString(), {
+      // Never follow a redirect off the allowlisted host.
+      ...MEDIA_FETCH_INIT,
       headers: {
         "user-agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",

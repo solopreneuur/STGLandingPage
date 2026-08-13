@@ -16,7 +16,7 @@ export const maxDuration = 60;
  * <video>, so a 20-reel scroll is ~78MB. That is the first thing that will
  * strain a Hobby plan under real traffic.
  */
-const ALLOWED_HOST = /(^|\.)(cdninstagram\.com|fbcdn\.net)$/i;
+import { ALLOWED_HOST, MEDIA_FETCH_INIT } from "@/lib/hosts";
 
 export async function GET(req: Request) {
   const raw = new URL(req.url).searchParams.get("u");
@@ -36,6 +36,8 @@ export async function GET(req: Request) {
 
   try {
     const upstream = await fetch(target.toString(), {
+      // Never follow a redirect off the allowlisted host.
+      ...MEDIA_FETCH_INIT,
       headers: {
         "user-agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",

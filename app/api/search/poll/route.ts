@@ -235,7 +235,15 @@ async function finish(
 
   const results = head
     .filter((r) => keptCodes.has(r.shortCode))
-    .map((r) => ({ ...r, confidence: verdicts.get(r.shortCode)?.confidence ?? 0.5 }));
+    .map((r) => ({
+      ...r,
+      confidence: verdicts.get(r.shortCode)?.confidence ?? 0.5,
+      // scoreAndSort ran with an empty verdict map (the median must come from
+      // the FULL set), so the reason has to be re-attached here. Without it
+      // every row this path writes lands with reason NULL and the niche reads
+      // back as entirely unjudged.
+      filterReason: verdicts.get(r.shortCode)?.reason,
+    }));
 
   const pool = ordered.slice(FIRST_WINDOW);
 
@@ -247,7 +255,10 @@ async function finish(
       try {
         const slug = normalizeSlug(usedList[0] ?? original);
         const nicheId = await upsertNiche(slug);
-        if (nicheId) await writeReels(nicheId, [...results, ...pool]);
+        // Only the judged head. The pool has not been through the filter yet
+        // — persisting it would store unscreened reels as though they had been
+        // screened, which is the same laundering the cron now refuses to do.
+        if (nicheId && results.length > 0) await writeReels(nicheId, results);
       } catch (err) {
         console.error("[search/poll] cache write failed:", err);
       }

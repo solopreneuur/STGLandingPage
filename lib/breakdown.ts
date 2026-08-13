@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { allowedMediaUrl, MEDIA_FETCH_INIT } from "./hosts";
 import type { Breakdown } from "./types";
 import { USE_FIXTURES, fixtureBreakdown } from "./fixtures";
 import { decodeDeep } from "./unescape";
@@ -81,9 +82,15 @@ export interface BreakdownInput {
 async function fetchCover(
   url: string
 ): Promise<{ data: string; mediaType: string } | null> {
-  if (!url) return null;
+  // Same allowlist the /api/thumb and /api/video proxies enforce. This URL
+  // arrives in the request body of an unauthenticated route, so without it the
+  // server will GET any address a caller names — and `image_used: true/false`
+  // in the response is a clean oracle for what came back.
+  const target = allowedMediaUrl(url);
+  if (!target) return null;
   try {
-    const res = await fetch(url, {
+    const res = await fetch(target.toString(), {
+      ...MEDIA_FETCH_INIT,
       headers: {
         "user-agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",

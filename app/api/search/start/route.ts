@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { startRun } from "@/lib/apify";
 import { USE_FIXTURES } from "@/lib/fixtures";
 import { resolveNiche, isFresh, readReels, bumpHit } from "@/lib/cache";
-import { median } from "@/lib/score";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -31,10 +30,9 @@ export async function POST(req: Request) {
     try {
       const { niche } = await resolveNiche(keyword);
       if (niche && isFresh(niche)) {
-        const results = await readReels(niche.id);
+        const { reels: results, medianPlays } = await readReels(niche.id);
         if (results.length > 0) {
           void bumpHit(niche.id);
-          const plays = results.map((r) => r.plays);
           return NextResponse.json({
             cached: true,
             keyword: niche.slug,
@@ -46,7 +44,9 @@ export async function POST(req: Request) {
               pulled: results.length,
               kept: results.length,
               dropped: 0,
-              medianPlays: median(plays),
+              // The base readReels actually divided by, so the multiplier,
+              // the median and the play count agree on screen.
+              medianPlays,
               metric: "plays",
               filtered: true,
               partial: false,

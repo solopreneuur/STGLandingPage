@@ -52,7 +52,7 @@ export async function POST(req: Request) {
 
     // Prefer the cached reel set (deeper, seeded at 50) and fall back to what
     // the client is actually looking at when the niche isn't cached yet.
-    const reels = niche ? await readReels(niche.id) : [];
+    const reels = niche ? (await readReels(niche.id)).reels : [];
     const source = reels.length > 0 ? reels : clientReels;
     if (source.length === 0) {
       return NextResponse.json({ error: "no_reels" }, { status: 400 });

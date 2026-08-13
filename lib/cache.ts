@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { safe } from "./db";
+import { median } from "./score";
 import type { Breakdown, Reel, SearchMeta } from "./types";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -10,6 +11,8 @@ const SYNONYM_MODEL = process.env.MODEL_SYNONYM || "claude-haiku-4-5";
 export const TTL_DAYS = Number(process.env.CACHE_TTL_DAYS ?? 7);
 /** Cap the payload so niches deepening week over week don't bloat responses. */
 export const SERVE_CAP = 50;
+/** Read past SERVE_CAP so the median is the niche's, not the served slice's. */
+const FETCH_CAP = 200;
 
 /* ------------------------------------------------------------------ */
 /* normalize                                                           */
@@ -124,8 +127,11 @@ personal finance. skincare is not beauty. A wrong match shows someone the
 wrong niche, which is worse than a cache miss.
 
 When in doubt, return null.`,
+      // No `effort` here. claude-haiku-4-5 rejects the parameter outright with
+      // a 400, and the catch below turned that into a silent `null` — so this
+      // step never resolved a single synonym. Structured outputs are supported;
+      // only `effort` is not.
       output_config: {
-        effort: "low",
         format: {
           type: "json_schema",
           schema: {
@@ -208,8 +214,27 @@ interface ReelRow {
   confidence: number | null;
 }
 
-export async function readReels(nicheId: string): Promise<Reel[]> {
-  return safe<Reel[]>(
+export interface CachedNiche {
+  reels: Reel[];
+  /** The single base every multiplier on screen was divided by. */
+  medianPlays: number;
+}
+
+/**
+ * Serve a niche, rescored against ONE median.
+ *
+ * The stored `score` column cannot be trusted as a display value: rows arrive
+ * from the seed, from a live search and from scroll top-ups, each dividing by
+ * whatever median it happened to see. Mixing those bases is what made the top
+ * card read "13x, 211K median, 3.4M plays" — three numbers that contradict
+ * each other by 22%.
+ *
+ * Recomputing here means the multiplier, the median and the play count are
+ * always arithmetically consistent, and it makes the stored score a sort hint
+ * rather than something a client can poison.
+ */
+export async function readReels(nicheId: string): Promise<CachedNiche> {
+  return safe<CachedNiche>(
     "readReels",
     async (c) => {
       const { data } = await c
@@ -218,14 +243,47 @@ export async function readReels(nicheId: string): Promise<Reel[]> {
         .eq("niche_id", nicheId)
         .eq("archived", false)
         .order("score", { ascending: false })
-        .limit(SERVE_CAP);
-      return (data ?? []).map((r: ReelRow) => ({
+        .limit(FETCH_CAP);
+
+      const reels = (data ?? []).map((r: ReelRow) => ({
         ...r.payload,
-        score: r.score ?? r.payload.score ?? 0,
         confidence: r.confidence ?? r.payload.confidence ?? 0.5,
       }));
+      // Median over every active reel, not the served slice, so the headline
+      // number does not shift as a niche deepens past SERVE_CAP.
+      const med = median(reels.map((r) => r.plays));
+      const scored = reels
+        .map((r) => ({ ...r, score: med > 0 ? r.plays / med : 0 }))
+        .sort((a, b) => b.score - a.score);
+
+      return { reels: scored.slice(0, SERVE_CAP), medianPlays: med };
     },
-    []
+    { reels: [], medianPlays: 0 }
+  );
+}
+
+/**
+ * The stored copy of a reel, by short code, from whichever niche holds it.
+ *
+ * /api/breakdown is unauthenticated and takes the whole reel off the request
+ * body, so a caller can otherwise pair a real short code with any caption and
+ * cover they like — and the result is written to a global, TTL-less table that
+ * every niche then serves. Preferring the stored row makes the short code the
+ * only thing a caller actually controls.
+ */
+export async function readReelByCode(shortCode: string): Promise<Reel | null> {
+  return safe<Reel | null>(
+    "readReelByCode",
+    async (c) => {
+      const { data } = await c
+        .from("reels")
+        .select("payload")
+        .eq("short_code", shortCode)
+        .limit(1)
+        .maybeSingle();
+      return ((data as { payload: Reel } | null)?.payload) ?? null;
+    },
+    null
   );
 }
 
@@ -482,10 +540,14 @@ export async function popularNiches(limit = 8): Promise<string[]> {
   return safe<string[]>(
     "popularNiches",
     async (c) => {
+      // Must mirror /api/search/start's isFresh() check, not merely
+      // "has ever been refreshed". A chip is a promise that the niche is
+      // instant; offering a stale one delivers a 40-60s scrape instead.
+      const cutoff = new Date(Date.now() - TTL_DAYS * 864e5).toISOString();
       const { data } = await c
         .from("niches")
         .select("slug, hit_count")
-        .not("last_refreshed_at", "is", null)
+        .gt("last_refreshed_at", cutoff)
         .order("hit_count", { ascending: false })
         .limit(limit);
       return (data ?? []).map((r: { slug: string }) => r.slug);

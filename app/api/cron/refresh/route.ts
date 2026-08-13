@@ -60,7 +60,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ refreshed: 0, note: "nothing cached yet" });
   }
 
-  const report: { slug: string; reels?: number; skipped?: string }[] = [];
+  const report: { slug: string; reels?: number; unjudged?: number; skipped?: string }[] = [];
 
   await pool(targets, CONCURRENCY, async (n) => {
     if (Date.now() - started > DEADLINE_MS) {
@@ -74,15 +74,35 @@ export async function GET(req: Request) {
         return;
       }
       const { items, metric } = normalize(raw as unknown[]);
-      const { verdicts } = await filterAudience(items);
+      const { verdicts, filtered } = await filterAudience(items);
+
+      // filterAudience degrades instead of throwing, so a dead Sonnet returns
+      // an empty verdict map and applyVerdicts then keeps EVERYTHING. Writing
+      // that would stamp the niche fresh and archive the judged reels it just
+      // replaced — an unattended job destroying the only data that cost real
+      // money to build. A refresh that cannot judge is a no-op, not a write.
+      if (!filtered) {
+        report.push({ slug: n.slug, skipped: "filter_failed" });
+        return;
+      }
+
       const kept = applyVerdicts(items, verdicts);
-      const { results } = scoreAndSort(kept.length ? kept : items, metric, verdicts);
+      // No `: items` fallback. During an outage applyVerdicts already returns
+      // everything, so that branch can only be reached by a SUCCESSFUL filter
+      // that rejected the whole set — resurrecting exactly the reels the model
+      // just told us were junk.
+      const { results } = scoreAndSort(kept, metric, verdicts);
+
+      // A chunk can fail on its own, leaving some reels unjudged. Those are
+      // legitimate to serve (borderline-keep), but they are not evidence that
+      // last week's reels are gone, so they must not authorise an archive.
+      const unjudged = results.filter((r) => !verdicts.has(r.shortCode)).length;
 
       const id = (await upsertNiche(n.slug)) ?? n.id;
       // Reels absent from the new pull are archived, never deleted — cheap
       // history, and the feed only ever serves the active set.
-      await writeReels(id, results, true);
-      report.push({ slug: n.slug, reels: results.length });
+      await writeReels(id, results, unjudged === 0);
+      report.push({ slug: n.slug, reels: results.length, unjudged });
     } catch (err) {
       // One bad niche must never take the weekly job down with it.
       console.error("[cron/refresh]", n.slug, err);

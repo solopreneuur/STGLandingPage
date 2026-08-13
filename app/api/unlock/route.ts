@@ -45,7 +45,17 @@ export async function GET(req: Request) {
   const dev = url.searchParams.get("dev");
 
   // Dev bypass — without this every iteration costs a real $1 charge.
-  if (dev && process.env.GATE_SECRET && dev === process.env.GATE_SECRET) {
+  //
+  // Guarded to non-production because using it means putting GATE_SECRET in a
+  // URL, which lands in Vercel's runtime logs and the browser's history. That
+  // secret signs every access token, and it has no rotation path that does not
+  // log out every paying customer.
+  if (
+    process.env.NODE_ENV !== "production" &&
+    dev &&
+    process.env.GATE_SECRET &&
+    dev === process.env.GATE_SECRET
+  ) {
     const res = NextResponse.redirect(new URL("/", SITE), 307);
     res.cookies.set(COOKIE_NAME, issueToken("dev-bypass"), cookieOptions);
     return res;

@@ -3,7 +3,7 @@ import { runSync } from "@/lib/apify";
 import { normalize, getPlays } from "@/lib/normalize";
 import { filterAudience, applyVerdicts } from "@/lib/filter";
 import { USE_FIXTURES, fixtureItems } from "@/lib/fixtures";
-import { resolveNiche, writeReels } from "@/lib/cache";
+import { resolveNiche, writeReels, readReels } from "@/lib/cache";
 import type { Metric, Reel } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -36,9 +36,26 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
-  if (keyword.length < 2) return NextResponse.json({ results: [] });
+  // Same bound as /api/search/start. This route bills an Apify run and is
+  // unauthenticated, so it must not be the looser of the two.
+  if (keyword.length < 2 || keyword.length > 60) {
+    return NextResponse.json({ results: [] });
+  }
 
   try {
+    // Cache first. The cached niche is usually deeper than the 12 the live
+    // search pulled, so the reels the user is scrolling toward are normally
+    // already in Postgres — scraping first meant paying for a 55s synchronous
+    // Apify run to re-fetch data we already had, on every feed, every session.
+    if (!USE_FIXTURES) {
+      const { niche } = await resolveNiche(keyword);
+      if (niche) {
+        const { reels } = await readReels(niche.id);
+        const unseen = reels.filter((r) => !exclude.includes(r.shortCode));
+        if (unseen.length > 0) return NextResponse.json({ results: unseen });
+      }
+    }
+
     const raw = USE_FIXTURES ? fixtureItems(keyword) : await runSync(keyword);
     if (raw.length === 0) return NextResponse.json({ results: [] });
 
@@ -76,9 +93,20 @@ export async function POST(req: Request) {
     // after them. Fire-and-forget so the response never waits on Postgres, and
     // `archiveMissing` stays false — this ADDS reels and must never archive the
     // ones the user is currently looking at.
+    //
+    // The PERSISTED score is recomputed server-side. `medianPlays` above comes
+    // from the request body, which is right for the response (the multipliers
+    // on screen must not shift mid-scroll) and completely wrong to store:
+    // readReels orders by that column, so an unauthenticated
+    // {"medianPlays":1} would otherwise pin junk to the top of a shared niche.
     void (async () => {
       const { niche } = await resolveNiche(keyword);
-      if (niche) await writeReels(niche.id, results);
+      if (!niche) return;
+      const { medianPlays: base } = await readReels(niche.id);
+      await writeReels(
+        niche.id,
+        results.map((r) => ({ ...r, score: base > 0 ? r.plays / base : 0 }))
+      );
     })();
 
     return NextResponse.json({ results });

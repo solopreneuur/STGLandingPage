@@ -137,9 +137,19 @@ async function seedOne(term: string): Promise<void> {
 
   // 2. filter + score
   const tf = Date.now();
-  const { verdicts } = await filterAudience(items);
+  const { verdicts, filtered } = await filterAudience(items);
+  if (!filtered) {
+    // Every reel would be written unjudged and the niche stamped fresh, which
+    // is exactly how "business" and "real estate" ended up holding 89
+    // unscreened reels that looked filtered.
+    console.log("   FILTER FAILED — refusing to write an unjudged niche");
+    return;
+  }
   const kept = applyVerdicts(items, verdicts);
-  const { results } = scoreAndSort(kept.length ? kept : items, metric, verdicts);
+  // No `: items` fallback: applyVerdicts already keeps everything when there
+  // are no verdicts, so that branch could only resurrect a set the model
+  // successfully rejected in full.
+  const { results } = scoreAndSort(kept, metric, verdicts);
   console.log(`   filtered → ${results.length} reels  (${secs(tf)}s)`);
 
   // 3. persist reels
