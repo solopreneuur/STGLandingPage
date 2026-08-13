@@ -14,13 +14,22 @@ import { saveResults, loadResults, getSearch } from "@/lib/session-cache";
  * underway.
  */
 const INFLIGHT_KEY = "stg_inflight";
-type Inflight = { keyword: string; params: string; at: number };
+type Inflight = { keyword: string; params: string; startedAt: number };
 
-function saveInflight(keyword: string, params: URLSearchParams) {
+/**
+ * `startedAt` is stamped ONCE when the search begins and preserved on every
+ * later write.
+ *
+ * The previous version stamped Date.now() on every poll iteration, so the
+ * staleness check below could never fire: each poll refreshed the timestamp,
+ * a reload always found a "fresh" entry, resumed the doomed run, and reset
+ * the deadline — a hang that survived every reload.
+ */
+function saveInflight(keyword: string, params: URLSearchParams, startedAt: number) {
   try {
     sessionStorage.setItem(
       INFLIGHT_KEY,
-      JSON.stringify({ keyword, params: params.toString(), at: Date.now() })
+      JSON.stringify({ keyword, params: params.toString(), startedAt })
     );
   } catch {}
 }
@@ -34,12 +43,20 @@ function loadInflight(): Inflight | null {
     const raw = sessionStorage.getItem(INFLIGHT_KEY);
     if (!raw) return null;
     const v = JSON.parse(raw) as Inflight;
-    // Apify runs finish well inside 3 minutes; older than that is stale.
-    return Date.now() - v.at < 3 * 60 * 1000 ? v : null;
+    // Measured against the ORIGINAL start, so a doomed search ages out no
+    // matter how many times it is resumed.
+    if (!v?.startedAt || Date.now() - v.startedAt > SEARCH_BUDGET_MS) {
+      sessionStorage.removeItem(INFLIGHT_KEY);
+      return null;
+    }
+    return v;
   } catch {
     return null;
   }
 }
+
+/** Total wall-clock a single search may occupy, across resumes. */
+const SEARCH_BUDGET_MS = 3 * 60 * 1000;
 
 /** Transient failures retry quietly. A user must never see an error for a blip. */
 const MAX_TRANSIENT = 6;
@@ -50,7 +67,8 @@ type View =
   | { k: "running"; stage: Stage; found: number; widenedTo?: string }
   | { k: "done"; results: Reel[]; pool: Reel[]; datasets: string; meta: SearchMeta }
   | { k: "empty"; suggestions: string[] }
-  | { k: "failed" };
+  | { k: "failed" }
+  | { k: "locked" };
 
 const POLL_MS = 2000;
 
@@ -60,7 +78,8 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
   const [searchOpen, setSearchOpen] = useState(false);
   const abort = useRef(false);
 
-  const poll = useCallback(async (q: string, startParams: URLSearchParams) => {
+  const poll = useCallback(
+    async (q: string, startParams: URLSearchParams, startedAt: number) => {
     let params = startParams;
     /**
      * Hard bounds on the poll loop.
@@ -70,7 +89,9 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
      * session, a 502, an edge error — matched nothing, fell through, slept,
      * and retried forever. That is the "Working..." that never finishes.
      */
-    const deadline = Date.now() + 3 * 60 * 1000;
+    // Absolute, derived from when the SEARCH started rather than when this
+    // poll attempt started, so resuming cannot buy fresh time forever.
+    const deadline = startedAt + SEARCH_BUDGET_MS;
     let ticks = 0;
     let transient = 0;
 
@@ -82,16 +103,17 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
         return;
       }
 
-      saveInflight(q, params);
+      saveInflight(q, params, startedAt);
 
       let data: PollResponse & Record<string, string>;
       try {
         const r = await fetch(`/api/search/poll?${params.toString()}`);
         if (r.status === 401) {
-          // Cookie gone or invalid. Reload so the server gate decides, rather
-          // than spinning here forever.
+          // Never hard-bounce to the paywall. A transient 401 looked exactly
+          // like "pay again", which is the worst possible false alarm on a
+          // product someone already bought.
           clearInflight();
-          window.location.href = "/";
+          setView({ k: "locked" });
           return;
         }
         if (!r.ok) throw new Error(String(r.status));
@@ -187,7 +209,9 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
       await new Promise((r) => setTimeout(r, POLL_MS));
     }
 
-  }, []);
+  },
+    []
+  );
 
   const run = useCallback(async (kw: string) => {
     const q = kw.trim();
@@ -228,7 +252,8 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
           body: JSON.stringify({ keyword: q }),
         });
         if (res.status === 401) {
-          window.location.href = "/";
+          clearInflight();
+          setView({ k: "locked" });
           return;
         }
         if (res.ok) break;
@@ -259,7 +284,7 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
       queue: "",
       used: q,
     });
-    await poll(q, params);
+    await poll(q, params, Date.now());
   }, [poll]);
 
   /**
@@ -292,7 +317,7 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
     if (flight) {
       setKeyword(flight.keyword);
       setView({ k: "running", stage: "pulling", found: 0 });
-      void poll(flight.keyword, new URLSearchParams(flight.params));
+      void poll(flight.keyword, new URLSearchParams(flight.params), flight.startedAt);
       return;
     }
 
@@ -344,6 +369,22 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
                 found={view.found}
                 widenedTo={view.widenedTo}
               />
+            </div>
+          )}
+
+          {view.k === "locked" && (
+            <div className="rounded-[14px] border border-hair bg-white/[0.02] p-5">
+              <p className="text-[0.95rem]">Your session needs a refresh.</p>
+              <p className="mt-1.5 text-sm text-muted">
+                You have not been charged again — this just re-checks your
+                access.
+              </p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-4 h-11 rounded-xl bg-accent px-4 text-sm font-semibold text-black"
+              >
+                Reload
+              </button>
             </div>
           )}
 
