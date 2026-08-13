@@ -1,0 +1,72 @@
+{
+  "_comment": "ACCEPTANCE FIXTURE. This is a real popular-feed item that the audience filter MUST reject. Caption is giveaway-bait ('Real or Fake'), firstComment is a gift-emoji wall, and every latest comment is follow-begging or prize-begging with zero topical engagement. If filter.ts returns keep:true for this, the filter is broken. Note locationName says 'USA' and is creator-set garbage — never filter on it.",
+  "_expect": { "keep": false, "minConfidence": 0.6 },
+  "item": {
+    "id": "3876317755179822282",
+    "type": "Video",
+    "shortCode": "DXLcnXyCGzK",
+    "caption": "Real or Fake IPhone 18 \n\n#iphone #apple #instgram #reel #tech",
+    "hashtags": ["iphone", "apple", "instgram", "reel", "tech"],
+    "mentions": [],
+    "url": "https://www.instagram.com/p/DXLcnXyCGzK/",
+    "videoPlayCount": 24779767,
+    "videoViewCount": 10866332,
+    "ownerUsername": "ajaytechofficial",
+    "ownerFullName": "Ajay Tech",
+    "ownerId": "28026718955",
+    "inputUrl": "https://www.instagram.com/popular/tech",
+    "commentsCount": 3727,
+    "firstComment": "🎁🎁🎁🎁🎁🎁🎁🎁🎁🎁",
+    "latestComments": [
+      {
+        "id": "18350412028172372",
+        "text": "🎁🎁🎁🎁🎁🎁🎁🎁🎁🎁",
+        "ownerUsername": "kamleshsing458tr",
+        "timestamp": "2026-08-12T22:17:15.000Z",
+        "repliesCount": null,
+        "likesCount": 0,
+        "owner": { "username": "kamleshsing458tr", "is_verified": false, "id": "67718249611" }
+      },
+      {
+        "id": "18179712058420935",
+        "text": "I am your new follower 🙏🏻",
+        "ownerUsername": "_divaaaaa____________",
+        "timestamp": "2026-08-12T20:17:49.000Z",
+        "repliesCount": null,
+        "likesCount": 0,
+        "owner": { "username": "_divaaaaa____________", "is_verified": false, "id": "42611590665" }
+      },
+      {
+        "id": "18122817286871290",
+        "text": "Give me one phone",
+        "ownerUsername": "moon.6016489",
+        "timestamp": "2026-08-12T17:24:33.000Z",
+        "repliesCount": null,
+        "likesCount": 0,
+        "owner": { "username": "moon.6016489", "is_verified": false, "id": "10409999618" }
+      }
+    ],
+    "dimensionsHeight": 1136,
+    "dimensionsWidth": 640,
+    "displayUrl": "https://instagram.fyyc8-1.fna.fbcdn.net/v/t51.jpg",
+    "images": [],
+    "alt": null,
+    "likesCount": 430818,
+    "timestamp": "2026-04-16T04:20:07.000Z",
+    "childPosts": [],
+    "locationName": "USA",
+    "locationId": "102618861444715",
+    "productType": "clips",
+    "videoDuration": 10.041,
+    "paidPartnership": false,
+    "isPinned": true,
+    "musicInfo": {
+      "artist_name": "Bad Bunny",
+      "song_name": "MONACO",
+      "uses_original_audio": false,
+      "should_mute_audio": false,
+      "audio_id": "808853994575405"
+    },
+    "isCommentsDisabled": false
+  }
+}

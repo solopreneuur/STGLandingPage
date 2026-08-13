@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+/* ============================================================
+   StudyTheGame — brand tokens
+   Near-black #0E0E12, white text, accent yellow #FAFF00,
+   success green #00E676. Mobile-first.
+   Inter (UI) · Archivo Black (ALL numbers) · Rubik Mono One (short labels)
+   ============================================================ */
+
+@theme {
+  --color-bg: #0e0e12;
+  --color-accent: #faff00;
+  --color-success: #00e676;
+  --color-ink: #ffffff;
+  --color-muted: rgba(255, 255, 255, 0.48);
+  --color-hair: rgba(255, 255, 255, 0.14);
+  --color-hairfocus: rgba(255, 255, 255, 0.32);
+  --color-field: rgba(255, 255, 255, 0.04);
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-num: "Archivo Black", "Inter", sans-serif;
+  --font-display: "Rubik Mono One", "Inter", sans-serif;
+
+  --shadow-accent: 0 10px 34px -12px rgba(250, 255, 0, 0.55);
+  --shadow-panel: 0 24px 60px -30px rgba(0, 0, 0, 0.9);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* ---------- Atmosphere ----------
+   Carried verbatim from the original brand system. These two have no
+   utility equivalent and are what make the dark read as lit and premium
+   rather than flat. Decorative, non-interactive. */
+
+/* Faint overhead light so the dark reads as lit, not empty. */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 70% at 50% -8%, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 60%),
+    radial-gradient(90% 60% at 50% 42%, rgba(250, 255, 0, 0.035), rgba(250, 255, 0, 0) 55%);
+}
+
+/* Subtle film grain — the premium-dark texture cue. */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
