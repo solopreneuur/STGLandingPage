@@ -9,10 +9,15 @@ const SYNONYM_MODEL = process.env.MODEL_SYNONYM || "claude-haiku-4-5";
 
 /** Outliers stay outliers; the data moves weekly. */
 export const TTL_DAYS = Number(process.env.CACHE_TTL_DAYS ?? 7);
-/** Cap the payload so niches deepening week over week don't bloat responses. */
-export const SERVE_CAP = 50;
+/**
+ * Cap the payload so niches deepening week over week don't bloat responses.
+ *
+ * Raised with keyword clustering: a niche now holds enough reels that a 50-cap
+ * would throw away most of the depth the extra queries just paid for.
+ */
+export const SERVE_CAP = Number(process.env.SERVE_CAP ?? 100);
 /** Read past SERVE_CAP so the median is the niche's, not the served slice's. */
-const FETCH_CAP = 200;
+const FETCH_CAP = 400;
 
 /* ------------------------------------------------------------------ */
 /* normalize                                                           */
@@ -162,7 +167,22 @@ When in doubt, return null.`,
   }
 }
 
+/**
+ * Memo a term onto a niche.
+ *
+ * Refuses to alias a slug that is itself a niche. byAlias runs BEFORE bySlug in
+ * resolveNiche, so such a row silently hijacks a real niche — writing
+ * "tech" -> gaming made every search for tech serve gaming's reels while
+ * tech's own 22 reels sat unreachable.
+ */
 export async function writeAlias(alias: string, nicheId: string): Promise<void> {
+  const existing = await bySlug(alias);
+  if (existing) {
+    if (existing.id !== nicheId) {
+      console.warn(`[cache] refusing alias "${alias}" — it is its own niche`);
+    }
+    return;
+  }
   await safe(
     "writeAlias",
     async (c) => {
@@ -327,7 +347,11 @@ export async function upsertNiche(slug: string): Promise<string | null> {
         )
         .select("id")
         .single();
-      return (data as { id: string } | null)?.id ?? null;
+      const id = (data as { id: string } | null)?.id ?? null;
+      // An alias with this slug would now shadow the niche it names, because
+      // byAlias runs before bySlug. Creating the niche wins.
+      if (id) await c.from("aliases").delete().eq("alias_slug", slug).neq("niche_id", id);
+      return id;
     },
     null
   );

@@ -12,13 +12,13 @@
  * Uses SEED_LIMIT (50), not SEARCH_LIMIT (12) — nobody is waiting on this, so
  * a thin pull would only make every cached niche permanently shallow.
  */
-import { runSync, SEED_LIMIT } from "../lib/apify.ts";
+import { SEED_LIMIT } from "../lib/apify.ts";
+import { pullCluster, CLUSTER_SIZE } from "../lib/cluster.ts";
 import { normalize } from "../lib/normalize.ts";
 import { filterAudience, applyVerdicts } from "../lib/filter.ts";
 import { scoreAndSort } from "../lib/score.ts";
 import { breakdownReel } from "../lib/breakdown.ts";
 import { synthesize } from "../lib/synthesis.ts";
-import { suggestVariants } from "../lib/variants.ts";
 import {
   normalizeSlug,
   upsertNiche,
@@ -59,6 +59,15 @@ const DELAY_MS = 2000;
 const SEED_TIMEOUT_MS = 240_000;
 /** Concurrent Opus calls per niche. Enough to be quick, not enough to 429. */
 const BREAKDOWN_CONCURRENCY = 5;
+/**
+ * How many reels get a breakdown warmed at seed time.
+ *
+ * Clustering roughly triples the pool, and pre-warming all of it would triple
+ * the seed bill for reels most sessions never scroll to. The top slice covers
+ * what people actually open; the tail generates on demand in ~11s and is then
+ * cached globally forever, which is the same path any uncached reel takes.
+ */
+const WARM_CAP = Number(process.env.WARM_CAP ?? 30);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const secs = (t: number) => ((Date.now() - t) / 1000).toFixed(1);
@@ -96,7 +105,8 @@ async function seedOne(term: string): Promise<void> {
       // Judged is NOT part of the bar: an absent verdict is a deliberate
       // borderline-keep, not missing work, and requiring it would re-run a
       // healthy niche on every pass.
-      const done = h.reels > 0 && h.breakdowns >= h.reels && h.synthesis;
+      const done =
+        h.reels > 0 && h.breakdowns >= Math.min(h.reels, WARM_CAP) && h.synthesis;
       if (done) {
         console.log(`   skip — complete (${h.reels} reels)`);
         return;
@@ -108,28 +118,22 @@ async function seedOne(term: string): Promise<void> {
     }
   }
 
-  // 1. pull, widening the same way the live path does.
+  // 1. pull the whole keyword CLUSTER, not just this term.
   //
-  // 12 of 16 keywords have an Instagram popular feed; "fitness" is one that
-  // does not. Skipping it would leave a permanent hole in a niche people
-  // obviously search for, so fall back to the semantic variants and store
-  // under whichever term actually returned data.
-  let raw = await runSync(term, SEED_LIMIT, SEED_TIMEOUT_MS);
-  let landed = term;
-
+  // One keyword tops out around 48 items no matter what limit we ask for, so
+  // a single-term niche was never going to hold enough reels to draw a
+  // conclusion from. Siblings are also what covers the keywords with no
+  // popular feed at all ("fitness"), which used to be skipped outright.
+  const { items: raw, landed, used, counts } = await pullCluster(
+    term,
+    SEED_LIMIT,
+    SEED_TIMEOUT_MS
+  );
+  console.log(
+    `   cluster: ${used.map((t) => `${t}=${counts[t]}`).join(", ") || "(nothing)"}`
+  );
   if (raw.length === 0) {
-    const variants = await suggestVariants(term, [term]);
-    console.log(`   no feed — widening: ${variants.join(", ") || "(none)"}`);
-    for (const v of variants) {
-      raw = await runSync(v, SEED_LIMIT, SEED_TIMEOUT_MS);
-      if (raw.length > 0) {
-        landed = v;
-        break;
-      }
-    }
-  }
-  if (raw.length === 0) {
-    console.log(`   NO FEED for "${term}" and no variant worked — skipping`);
+    console.log(`   NO FEED for "${term}" or any sibling — skipping`);
     return;
   }
 
@@ -170,9 +174,15 @@ async function seedOne(term: string): Promise<void> {
   // uncovered — and makes the completeness check below re-run this niche
   // forever, since coverage can never reach 100%.
   const { reels: active } = await readReels(nicheId);
-  const targets = active.length > 0 ? active : results;
+  const targets = (active.length > 0 ? active : results).slice(0, WARM_CAP);
   // Memo the term we were ASKED for, so a search for it resolves instantly
   // instead of paying for the synonym call it would otherwise need.
+  // Only the term we were ASKED for is memoized — never the cluster siblings.
+  // A sibling is a broadening query, not a synonym: "esports" and "tech" are
+  // useful sources of gaming reels but are their own search intents, and
+  // "tech" is a seeded niche in its own right. Aliasing them hijacked those
+  // searches. resolveNiche's synonym step already handles genuine equivalence,
+  // conservatively and one term at a time.
   if (landedSlug !== slug) await writeAlias(slug, nicheId);
 
   // 4. breakdowns — the expensive part, and the whole reason to seed
