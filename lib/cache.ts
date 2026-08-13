@@ -402,6 +402,61 @@ export async function writeSynthesis(
   );
 }
 
+export interface NicheHealth {
+  reels: number;
+  /** Reels carrying a filter verdict. A gap here means the filter call failed. */
+  judged: number;
+  breakdowns: number;
+  synthesis: boolean;
+}
+
+/**
+ * Completeness of a cached niche, as opposed to its age.
+ *
+ * A run that loses the Anthropic API partway writes reels that look fine by
+ * row count but were never judged and have no breakdowns behind them. Freshness
+ * alone cannot tell those apart, so anything that decides whether to redo work
+ * has to ask this instead.
+ */
+export async function nicheHealth(nicheId: string): Promise<NicheHealth> {
+  return safe<NicheHealth>(
+    "nicheHealth",
+    async (c) => {
+      const { data } = await c
+        .from("reels")
+        .select("short_code, reason")
+        .eq("niche_id", nicheId)
+        .eq("archived", false);
+      const rows = (data ?? []) as { short_code: string; reason: string | null }[];
+
+      let breakdowns = 0;
+      // Chunked because PostgREST puts `in` lists in the query string.
+      for (let i = 0; i < rows.length; i += 100) {
+        const codes = rows.slice(i, i + 100).map((r) => r.short_code);
+        const { count } = await c
+          .from("breakdowns")
+          .select("*", { count: "exact", head: true })
+          .in("short_code", codes);
+        breakdowns += count ?? 0;
+      }
+
+      const { data: syn } = await c
+        .from("syntheses")
+        .select("niche_id")
+        .eq("niche_id", nicheId)
+        .maybeSingle();
+
+      return {
+        reels: rows.length,
+        judged: rows.filter((r) => r.reason !== null).length,
+        breakdowns,
+        synthesis: !!syn,
+      };
+    },
+    { reels: 0, judged: 0, breakdowns: 0, synthesis: false }
+  );
+}
+
 /**
  * Niches the weekly cron should re-pull: everything anyone has ever landed on,
  * most-wanted first. Capped by the caller so the job stays inside 300s.

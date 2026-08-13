@@ -29,6 +29,7 @@ import {
   writeAlias,
   bySlugPublic,
   isFresh,
+  nicheHealth,
 } from "../lib/cache.ts";
 import type { Breakdown } from "../lib/types.ts";
 
@@ -87,8 +88,20 @@ async function seedOne(term: string): Promise<void> {
   if (!FORCE) {
     const existing = await bySlugPublic(slug);
     if (existing && isFresh(existing)) {
-      console.log("   skip — already fresh");
-      return;
+      // Fresh is not the same as finished. A run that lost the API partway
+      // leaves a niche that is recent but has no breakdowns and no synthesis,
+      // and skipping on date alone would make the seed unable to repair it.
+      const h = await nicheHealth(existing.id);
+      const done =
+        h.reels > 0 && h.judged === h.reels && h.breakdowns === h.reels && h.synthesis;
+      if (done) {
+        console.log(`   skip — complete (${h.reels} reels)`);
+        return;
+      }
+      console.log(
+        `   fresh but incomplete (${h.judged}/${h.reels} judged, ` +
+          `${h.breakdowns}/${h.reels} breakdowns, synthesis ${h.synthesis ? "yes" : "no"}) — redoing`
+      );
     }
   }
 
