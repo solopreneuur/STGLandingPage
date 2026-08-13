@@ -1,0 +1,244 @@
+{
+  "verdicts": [
+    {
+      "shortCode": "DWrrhG8EcSS",
+      "keep": false,
+      "confidence": 0.8,
+      "reason": "Generic praise and off-topic comment, no substance"
+    },
+    {
+      "shortCode": "DSRIVblkU9S",
+      "keep": false,
+      "confidence": 0.7,
+      "reason": "Emoji reactions and generic praise, mostly noise"
+    },
+    {
+      "shortCode": "DUbwSUbDvsR",
+      "keep": true,
+      "confidence": 0.75,
+      "reason": "Comments reference specific setup details (flooring, rack)"
+    },
+    {
+      "shortCode": "DRkBkrLggjE",
+      "keep": false,
+      "confidence": 0.6,
+      "reason": "Mostly generic reactions and unrelated comments"
+    },
+    {
+      "shortCode": "DXs13T4isdF",
+      "keep": false,
+      "confidence": 0.75,
+      "reason": "Emoji spam, follow-begging, generic praise"
+    },
+    {
+      "shortCode": "DSLv5gRjQwJ",
+      "keep": true,
+      "confidence": 0.65,
+      "reason": "Specific comment about boots/setup shows genuine engagement"
+    },
+    {
+      "shortCode": "DPmNCcBES8-",
+      "keep": true,
+      "confidence": 0.8,
+      "reason": "Specific questions about price and detailed comments on ceiling design"
+    },
+    {
+      "shortCode": "DTsnXoJjEdJ",
+      "keep": false,
+      "confidence": 0.75,
+      "reason": "Generic praise, unrelated self-promo comments"
+    },
+    {
+      "shortCode": "DVjrIbbjcu8",
+      "keep": true,
+      "confidence": 0.7,
+      "reason": "Specific technique question (sets) and relatable detail (IKEA chair)"
+    },
+    {
+      "shortCode": "DWAKXcCDQB0",
+      "keep": true,
+      "confidence": 0.75,
+      "reason": "Debate/disagreement about content approach, specific reactions"
+    },
+    {
+      "shortCode": "DPot9p0EZq_",
+      "keep": true,
+      "confidence": 0.8,
+      "reason": "Specific technical question about cable machine setup"
+    },
+    {
+      "shortCode": "DUoSQ-fESKt",
+      "keep": true,
+      "confidence": 0.6,
+      "reason": "Specific link requests and product tags relevant to niche"
+    },
+    {
+      "shortCode": "DWbQgnhDfcy",
+      "keep": false,
+      "confidence": 0.6,
+      "reason": "Mostly link/price requests and emoji, low topical depth"
+    },
+    {
+      "shortCode": "DQ4Z4EZDjny",
+      "keep": false,
+      "confidence": 0.7,
+      "reason": "Generic motivational praise, not video-specific"
+    },
+    {
+      "shortCode": "DRhT_sakfuy",
+      "keep": false,
+      "confidence": 0.7,
+      "reason": "Purchase inquiries only, no substantive engagement"
+    },
+    {
+      "shortCode": "DUJcCKDD4fn",
+      "keep": false,
+      "confidence": 0.65,
+      "reason": "Price questions and emoji, generic engagement"
+    },
+    {
+      "shortCode": "DWrCJNKAoY9",
+      "keep": false,
+      "confidence": 0.75,
+      "reason": "Off-topic and low-content comments"
+    },
+    {
+      "shortCode": "DXwvQG5xzYQ",
+      "keep": true,
+      "confidence": 0.75,
+      "reason": "Specific cost discussion and detailed questions about setup"
+    },
+    {
+      "shortCode": "DPhcqx6AfSj",
+      "keep": false,
+      "confidence": 0.85,
+      "reason": "Repeated 'Shop' comments, classic bot/farmed pattern"
+    },
+    {
+      "shortCode": "DQDqCxhjg3m",
+      "keep": false,
+      "confidence": 0.7,
+      "reason": "Generic praise comments, no specific engagement"
+    },
+    {
+      "shortCode": "DWq-GmkEtkP",
+      "keep": true,
+      "confidence": 0.6,
+      "reason": "Comments show genuine curiosity about space size, some topical engagement"
+    },
+    {
+      "shortCode": "DXQFVfOD-Am",
+      "keep": true,
+      "confidence": 0.6,
+      "reason": "Specific question about pregnancy training, though some link requests"
+    },
+    {
+      "shortCode": "DYM-4eaxuS9",
+      "keep": true,
+      "confidence": 0.65,
+      "reason": "Specific product question about function of equipment"
+    },
+    {
+      "shortCode": "DV_tUwECdXT",
+      "keep": true,
+      "confidence": 0.7,
+      "reason": "Debate about treadmill vs outdoor running, topical engagement"
+    },
+    {
+      "shortCode": "DVeWRTCDAdO",
+      "keep": false,
+      "confidence": 0.65,
+      "reason": "Mostly link/price requests, low substance"
+    },
+    {
+      "shortCode": "DXYbkPpDWqn",
+      "keep": false,
+      "confidence": 0.85,
+      "reason": "Repeated 'Link' comments, farmed engagement pattern"
+    },
+    {
+      "shortCode": "DWMYpYqCkCV",
+      "keep": false,
+      "confidence": 0.6,
+      "reason": "Generic reactions, mostly emoji and tags"
+    },
+    {
+      "shortCode": "DYGckYshg4a",
+      "keep": true,
+      "confidence": 0.65,
+      "reason": "Specific squat form comment and niche shoutout, some topical depth"
+    },
+    {
+      "shortCode": "DVQXJHHCg18",
+      "keep": true,
+      "confidence": 0.7,
+      "reason": "Specific size question and witty topical banter about the build"
+    },
+    {
+      "shortCode": "DVC6R6QkVyn",
+      "keep": false,
+      "confidence": 0.85,
+      "reason": "Emoji walls and generic reactions, no topical content"
+    },
+    {
+      "shortCode": "DRHW7PokmVo",
+      "keep": false,
+      "confidence": 0.8,
+      "reason": "Repeated 'Link' requests, farmed pattern"
+    },
+    {
+      "shortCode": "DVAExszga0i",
+      "keep": true,
+      "confidence": 0.7,
+      "reason": "Specific vibe/theme discussion, playful topical banter"
+    },
+    {
+      "shortCode": "DWEpQEKCv2y",
+      "keep": true,
+      "confidence": 0.7,
+      "reason": "Specific product feedback and questions about chair/flooring"
+    },
+    {
+      "shortCode": "DVUdDk9DCdQ",
+      "keep": true,
+      "confidence": 0.6,
+      "reason": "Specific complaint about product durability, price questions show engagement"
+    },
+    {
+      "shortCode": "DUikU7qk6cA",
+      "keep": false,
+      "confidence": 0.6,
+      "reason": "Mostly generic reactions and spam link"
+    },
+    {
+      "shortCode": "DRbzIhej8j3",
+      "keep": true,
+      "confidence": 0.75,
+      "reason": "Specific pricing comparisons and equipment sourcing questions"
+    },
+    {
+      "shortCode": "DX84KVvNN8p",
+      "keep": true,
+      "confidence": 0.8,
+      "reason": "Detailed technique questions specific to the workout content"
+    },
+    {
+      "shortCode": "DXYNMkrCf2Q",
+      "keep": false,
+      "confidence": 0.7,
+      "reason": "Emoji reactions, low substance"
+    },
+    {
+      "shortCode": "DULBQ5djyDT",
+      "keep": false,
+      "confidence": 0.6,
+      "reason": "Off-topic and generic comments"
+    },
+    {
+      "shortCode": "DV_I-DtjQaU",
+      "keep": true,
+      "confidence": 0.65,
+      "reason": "Specific equipment recommendation (PRX racks) shows niche engagement"
+    }
+  ]
+}
