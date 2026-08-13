@@ -20,6 +20,10 @@ const LAST_KEY = "stg_last";
 export interface CachedSearch {
   keyword: string;
   results: Reel[];
+  /** Unjudged remainder, filtered just-in-time on scroll. */
+  pool: Reel[];
+  /** Dataset ids the JIT filter needs to re-read comments. */
+  datasets: string;
   meta: SearchMeta;
   at: number;
 }

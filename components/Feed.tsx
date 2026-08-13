@@ -15,19 +15,87 @@ import { thumbSrc, videoSrc, VIDEO_ENABLED } from "@/lib/thumb";
  * Neighbours keep their poster image, which also means scrolling stays smooth
  * on a phone.
  */
+/** Start fetching the next window when this many slides remain ahead. */
+const LOOKAHEAD = 6;
+/** Reels judged per just-in-time call. ~3s, and it happens off-screen. */
+const WINDOW = 10;
+
 export default function Feed({
   results,
+  pool,
+  datasets,
   meta,
   keyword,
   onOpenSearch,
 }: {
   results: Reel[];
+  pool: Reel[];
+  datasets: string;
   meta: SearchMeta;
   keyword: string;
   onOpenSearch: () => void;
 }) {
   const [active, setActive] = useState(0);
+  const [slides, setSlides] = useState<Reel[]>(results);
+  const [remaining, setRemaining] = useState<Reel[]>(pool);
+  const [loadingMore, setLoadingMore] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  const inflight = useRef(false);
+
+  // A new search replaces both lists.
+  useEffect(() => {
+    setSlides(results);
+    setRemaining(pool);
+    setActive(0);
+  }, [results, pool]);
+
+  /**
+   * Judge the next window before the user reaches it. Slides are only ever
+   * APPENDED — filtering in place would shrink the feed under the user's
+   * thumb, which is worse than waiting for it.
+   */
+  useEffect(() => {
+    if (inflight.current) return;
+    if (remaining.length === 0) return;
+    if (active < slides.length - LOOKAHEAD) return;
+
+    inflight.current = true;
+    setLoadingMore(true);
+    const batch = remaining.slice(0, WINDOW);
+
+    (async () => {
+      try {
+        const res = await fetch("/api/filter", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            datasets: datasets ? datasets.split(",").filter(Boolean) : [],
+            shortCodes: batch.map((r) => r.shortCode),
+          }),
+        });
+        const { verdicts } = (await res.json()) as {
+          verdicts: { shortCode: string; keep: boolean; confidence: number }[];
+        };
+        const byCode = new Map(verdicts.map((v) => [v.shortCode, v]));
+        const kept = batch
+          // No verdict means unjudged, and an unjudged reel is shown rather
+          // than silently dropped — same rule the server uses.
+          .filter((r) => byCode.get(r.shortCode)?.keep !== false)
+          .map((r) => ({
+            ...r,
+            confidence: byCode.get(r.shortCode)?.confidence ?? 0.5,
+          }));
+        setSlides((prev) => [...prev, ...kept]);
+      } catch {
+        // Filtering failed: show the window unjudged rather than stall.
+        setSlides((prev) => [...prev, ...batch]);
+      } finally {
+        setRemaining((prev) => prev.slice(WINDOW));
+        setLoadingMore(false);
+        inflight.current = false;
+      }
+    })();
+  }, [active, slides.length, remaining, datasets]);
 
   useEffect(() => {
     const root = scroller.current;
@@ -47,7 +115,7 @@ export default function Feed({
     );
     root.querySelectorAll("[data-i]").forEach((el) => io.observe(el));
     return () => io.disconnect();
-  }, [results.length]);
+  }, [slides.length]);
 
   return (
     <div className="fixed inset-0 z-10 bg-bg">
@@ -65,15 +133,23 @@ export default function Feed({
           </span>
         </button>
         <span className="pointer-events-auto rounded-full bg-black/55 px-3 py-2 text-[0.7rem] text-white/70 backdrop-blur-sm">
-          <span className="font-num text-white">{active + 1}</span>/{results.length}
+          <span className="font-num text-white">{active + 1}</span>/{slides.length}{remaining.length > 0 ? "+" : ""}
         </span>
       </div>
+
+      {loadingMore && (
+        <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
+          <span className="rounded-full bg-black/60 px-3 py-1.5 text-[0.65rem] text-white/70 backdrop-blur-sm">
+            finding more…
+          </span>
+        </div>
+      )}
 
       <div
         ref={scroller}
         className="h-dvh snap-y snap-mandatory overflow-y-scroll overscroll-contain"
       >
-        {results.map((reel, i) => (
+        {slides.map((reel, i) => (
           <Slide
             key={reel.shortCode}
             reel={reel}

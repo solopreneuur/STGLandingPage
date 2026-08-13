@@ -107,13 +107,16 @@ export type PollResponse =
   | { phase: "filtering" }
   | { phase: "scoring" }
   | ({ phase: "widening"; triedKeyword: string } & WideningState)
-  /**
-   * Scored but NOT yet audience-filtered. Emitted as soon as the Apify data
-   * lands so the feed renders ~12s sooner; the client keeps polling and
-   * swaps in the filtered set when it arrives.
-   */
-  | { phase: "partial"; results: Reel[]; meta: SearchMeta; datasets: string; used: string }
-  | { phase: "done"; results: Reel[]; meta: SearchMeta }
+  | {
+      phase: "done";
+      /** Filtered + scored. Safe to paint immediately. */
+      results: Reel[];
+      /** Scored but unjudged. Filtered just-in-time as the user scrolls. */
+      pool: Reel[];
+      /** Dataset ids so the JIT filter can re-read comments server-side. */
+      datasets: string;
+      meta: SearchMeta;
+    }
   | { phase: "empty"; suggestions: string[] }
   | { phase: "failed"; retryable: boolean };
 

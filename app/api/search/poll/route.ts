@@ -17,6 +17,15 @@ export const maxDuration = 120;
 /** Below this we try to widen rather than ship a thin, noisy median. */
 const MIN_RESULTS = 30;
 
+/**
+ * Judged up front; everything beyond this is filtered on scroll.
+ *
+ * Sized against the real rejection rate, not the raw count: the filter drops
+ * roughly half to two thirds, so a 12-item head opened the feed on only 4
+ * reels. 20 lands ~8-10 on screen for ~4s of filtering.
+ */
+const FIRST_WINDOW = 20;
+
 const csv = (s: string | null) => (s ? s.split(",").filter(Boolean) : []);
 
 /**
@@ -42,7 +51,6 @@ export async function GET(req: Request) {
   const datasets = csv(url.searchParams.get("datasets"));
   const queue = csv(url.searchParams.get("queue"));
   const used = csv(url.searchParams.get("used"));
-  const stage = url.searchParams.get("stage") ?? "";
   const usedList = used.length ? used : [keyword];
 
   if (!runId || !datasetId || !keyword) {
@@ -55,7 +63,6 @@ export async function GET(req: Request) {
       return widen({ original, usedList, queue, datasets, collected: [] });
     }
     const items = fixtureItems(keyword);
-    if (stage !== "filter") return partial(items, datasets, usedList);
     return finish(items, datasets, usedList, original);
   }
 
@@ -105,41 +112,10 @@ export async function GET(req: Request) {
     return widen({ original, usedList, queue, datasets: allDatasets, collected });
   }
 
-  // Render the feed BEFORE filtering. The filter is ~12s of the wait and the
-  // reels are already scrollable without it, so make the user wait for the
-  // refinement rather than for first paint.
-  if (stage !== "filter") return partial(collected, allDatasets, usedList);
-
   return finish(collected, allDatasets, usedList, original);
 }
 
 /* ------------------------------------------------------------------ */
-
-/** Scored, unfiltered, sorted. Every item is borderline until judged. */
-function partial(
-  collected: ApifyItem[],
-  datasets: string[],
-  usedList: string[]
-): NextResponse {
-  const { items, metric, pulled, dropped } = normalize(collected as unknown[]);
-  const { results, medianPlays } = scoreAndSort(items, metric, new Map());
-  return NextResponse.json({
-    phase: "partial",
-    results,
-    meta: {
-      pulled,
-      kept: results.length,
-      dropped,
-      medianPlays,
-      metric,
-      filtered: false,
-      partial: true,
-      keywordsUsed: usedList,
-    },
-    datasets: datasets.join(","),
-    used: usedList.join(","),
-  } satisfies PollResponse);
-}
 
 async function widen(args: {
   original: string;
@@ -225,7 +201,7 @@ async function finish(
   datasets: string[],
   usedList: string[],
   original: string,
-  partial = false
+  partialFlag = false
 ): Promise<NextResponse> {
   const { items, metric, pulled, dropped } = normalize(collected as unknown[]);
 
@@ -236,19 +212,34 @@ async function finish(
     } satisfies PollResponse);
   }
 
-  const { verdicts, filtered } = await filterAudience(items);
-  const kept = applyVerdicts(items, verdicts);
+  // Median over the FULL normalised set, not the filtered subset. It is the
+  // niche's median, so it must not move as JIT filtering resolves later
+  // windows — the multiplier is the headline number and a shifting one is
+  // worse than a slightly different one.
+  const ranked = scoreAndSort(items, metric, new Map());
+  const medianPlays = ranked.medianPlays;
+  const ordered = ranked.results;
 
-  // The filter can legitimately reject nearly everything. Never return an
-  // empty page off the back of that — fall back to the unfiltered set and
-  // let the borderline sort handle ordering.
-  const forScoring = kept.length > 0 ? kept : items;
+  // Judge only enough to fill the first screens. The rest is filtered
+  // just-in-time as the user scrolls, so the wait is ~3s instead of ~12s.
+  const head = ordered.slice(0, FIRST_WINDOW);
+  const byCode = new Map(items.map((i) => [i.shortCode, i]));
+  const headItems = head.map((r) => byCode.get(r.shortCode)!).filter(Boolean);
 
-  const { results, medianPlays } = scoreAndSort(forScoring, metric, verdicts);
+  const { verdicts, filtered } = await filterAudience(headItems);
+  const keptCodes = new Set(
+    applyVerdicts(headItems, verdicts).map((i) => i.shortCode)
+  );
+
+  const results = head
+    .filter((r) => keptCodes.has(r.shortCode))
+    .map((r) => ({ ...r, confidence: verdicts.get(r.shortCode)?.confidence ?? 0.5 }));
 
   return NextResponse.json({
     phase: "done",
     results,
+    pool: ordered.slice(FIRST_WINDOW),
+    datasets: datasets.join(","),
     meta: {
       pulled,
       kept: results.length,
@@ -256,7 +247,7 @@ async function finish(
       medianPlays,
       metric,
       filtered,
-      partial,
+      partial: partialFlag,
       keywordsUsed: usedList,
     },
   } satisfies PollResponse);

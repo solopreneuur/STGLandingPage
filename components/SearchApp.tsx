@@ -10,7 +10,7 @@ import { saveResults, loadResults, getSearch } from "@/lib/session-cache";
 type View =
   | { k: "idle" }
   | { k: "running"; stage: Stage; found: number; widenedTo?: string }
-  | { k: "done"; results: Reel[]; meta: SearchMeta }
+  | { k: "done"; results: Reel[]; pool: Reel[]; datasets: string; meta: SearchMeta }
   | { k: "empty"; suggestions: string[] }
   | { k: "failed" };
 
@@ -33,8 +33,14 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
     // ~$0.34 and ~40s to recompute the same answer.
     const hit = getSearch(q);
     if (hit?.results?.length) {
-      setView({ k: "done", results: hit.results, meta: hit.meta });
-      saveResults({ keyword: q, results: hit.results, meta: hit.meta });
+      setView({
+        k: "done",
+        results: hit.results,
+        pool: hit.pool ?? [],
+        datasets: hit.datasets ?? "",
+        meta: hit.meta,
+      });
+      saveResults(hit);
       return;
     }
 
@@ -105,16 +111,21 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
             used: data.used,
           });
           break;
-        case "partial":
-          // Show the feed now; keep polling so the filter can refine it.
-          setView({ k: "done", results: data.results, meta: data.meta });
-          params.set("stage", "filter");
-          params.set("datasets", data.datasets);
-          params.set("used", data.used);
-          break;
         case "done":
-          saveResults({ keyword: q, results: data.results, meta: data.meta });
-          setView({ k: "done", results: data.results, meta: data.meta });
+          saveResults({
+            keyword: q,
+            results: data.results,
+            pool: data.pool,
+            datasets: data.datasets,
+            meta: data.meta,
+          });
+          setView({
+            k: "done",
+            results: data.results,
+            pool: data.pool,
+            datasets: data.datasets,
+            meta: data.meta,
+          });
           return;
         case "empty":
           setView({ k: "empty", suggestions: data.suggestions ?? [] });
@@ -123,7 +134,7 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
           setView({ k: "failed" });
           return;
       }
-      if (data.phase !== "partial") await new Promise((r) => setTimeout(r, POLL_MS));
+      await new Promise((r) => setTimeout(r, POLL_MS));
     }
   }, []);
 
@@ -141,7 +152,13 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
     const cached = loadResults();
     if (cached?.results?.length) {
       setKeyword(cached.keyword);
-      setView({ k: "done", results: cached.results, meta: cached.meta });
+      setView({
+        k: "done",
+        results: cached.results,
+        pool: cached.pool ?? [],
+        datasets: cached.datasets ?? "",
+        meta: cached.meta,
+      });
       return;
     }
 
@@ -173,6 +190,8 @@ export default function SearchApp({ initialKeyword }: { initialKeyword: string }
       {hasFeed && (
         <Feed
           results={view.results}
+          pool={view.pool}
+          datasets={view.datasets}
           meta={view.meta}
           keyword={keyword}
           onOpenSearch={() => setSearchOpen(true)}
