@@ -8,6 +8,9 @@
  */
 import { db } from "../lib/db.ts";
 
+/** Must match scripts/seed.ts — only the top slice is warmed at seed time. */
+const WARM_CAP = Number(process.env.WARM_CAP ?? 30);
+
 interface Row {
   short_code: string;
   reason: string | null;
@@ -28,7 +31,8 @@ async function main(): Promise<void> {
 
   const damaged: string[] = [];
   console.log(
-    "niche                reels  judged  breakdowns  synthesis  verdict"
+    `warm cap ${WARM_CAP} — breakdowns beyond it generate on demand\n\n` +
+      "niche                reels  judged  breakdowns  synthesis  verdict"
   );
   for (const n of niches ?? []) {
     const { data: reels } = await c
@@ -54,8 +58,11 @@ async function main(): Promise<void> {
       .eq("niche_id", n.id)
       .maybeSingle();
 
-    // Judged is informational: an absent verdict is a borderline-keep by design.
-    const ok = rows.length > 0 && bds >= rows.length && !!syn;
+    // Judged is informational: an absent verdict is a borderline-keep by
+    // design. Breakdowns are only warmed for the top WARM_CAP — the tail
+    // generates on demand — so requiring full coverage flagged every healthy
+    // clustered niche as incomplete.
+    const ok = rows.length > 0 && bds >= Math.min(rows.length, WARM_CAP) && !!syn;
     if (!ok) damaged.push(n.slug);
     console.log(
       `${n.slug.padEnd(20)} ${String(rows.length).padStart(5)}  ` +

@@ -14,19 +14,26 @@ import type { ApifyItem } from "./types";
  * conclusion from and one you cannot.
  */
 export const CLUSTER_SIZE = Number(process.env.CLUSTER_SIZE ?? 5);
+/** Simultaneous Apify runs per niche. Above this the account starts refusing. */
+const CLUSTER_CONCURRENCY = Number(process.env.CLUSTER_CONCURRENCY ?? 2);
 
 export interface ClusterPull {
   /** Raw items across the whole cluster, deduped by shortCode. */
   items: ApifyItem[];
   /**
-   * The term the niche should be stored under: the primary when it has a feed,
-   * otherwise the first sibling that actually returned data.
+   * The term the niche is stored under — ALWAYS the primary.
+   *
+   * Storing under whichever sibling happened to answer first meant a seed for
+   * "beauty" wrote its reels into the "fashion" niche. Siblings are sources;
+   * the niche's identity is what was asked for.
    */
   landed: string;
   /** Terms that returned at least one item, in the order they were tried. */
   used: string[];
   /** Per-term counts, for logging. */
   counts: Record<string, number>;
+  /** Terms whose run FAILED, as opposed to returning an empty feed. */
+  failed: string[];
 }
 
 /**
@@ -49,26 +56,42 @@ export async function pullCluster(
   const siblings = await suggestVariants(term, [term]);
   const terms = [term, ...siblings].slice(0, CLUSTER_SIZE);
 
-  const results = await Promise.all(
-    terms.map(async (t) => {
-      try {
-        return { t, items: await runSync(t, limit, timeoutMs) };
-      } catch {
-        // One dead keyword must not cost the niche its other four.
-        return { t, items: [] as ApifyItem[] };
+  // Bounded, not wide open. Five simultaneous runs exceeded the account's
+  // concurrency and the failures came back looking like empty feeds.
+  const results: { t: string; items: ApifyItem[]; ok: boolean }[] = [];
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(CLUSTER_CONCURRENCY, terms.length) }, async () => {
+      while (next < terms.length) {
+        const t = terms[next++];
+        try {
+          results.push({ t, items: await runSync(t, limit, timeoutMs), ok: true });
+        } catch {
+          // One dead keyword must not cost the niche its siblings — but record
+          // that it FAILED, so the caller can tell that apart from no feed.
+          results.push({ t, items: [], ok: false });
+        }
       }
     })
   );
 
   const counts: Record<string, number> = {};
   const used: string[] = [];
+  const failed: string[] = [];
   let items: ApifyItem[] = [];
-  for (const r of results) {
-    counts[r.t] = r.items.length;
+  // Keep the caller's term order, not completion order.
+  for (const t of terms) {
+    const r = results.find((x) => x.t === t);
+    if (!r) continue;
+    if (!r.ok) {
+      failed.push(t);
+      continue;
+    }
+    counts[t] = r.items.length;
     if (r.items.length === 0) continue;
-    used.push(r.t);
+    used.push(t);
     items = mergeUnique(items, r.items);
   }
 
-  return { items, landed: used[0] ?? term, used, counts };
+  return { items, landed: term, used, counts, failed };
 }

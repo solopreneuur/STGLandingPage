@@ -58,7 +58,13 @@ export async function runSync(
       signal: AbortSignal.timeout(timeoutMs),
     }
   );
-  if (!res.ok) return [];
+  // Throw rather than return []. A rate-limited or failed run is NOT an empty
+  // feed, and collapsing the two made four niches report "NO FEED" for
+  // keywords that demonstrably have one — "cooking" returned nothing in its
+  // own cluster and 50 items in another minutes later.
+  if (!res.ok) {
+    throw new Error(`apify ${res.status} for "${search}"`);
+  }
   const items = await res.json();
   return Array.isArray(items) ? items : [];
 }
@@ -149,6 +155,8 @@ export async function getRunStatus(runId: string, datasetId: string): Promise<Ru
 
 export async function getDatasetItems(datasetId: string): Promise<ApifyItem[]> {
   const res = await fetch(`${BASE}/datasets/${datasetId}/items?token=${TOKEN}&clean=true`);
+  // Stays lenient: the live poll path treats a missing dataset as "nothing
+  // yet" and has its own retry/deadline handling around it.
   if (!res.ok) return [];
   const items = await res.json();
   return Array.isArray(items) ? items : [];
