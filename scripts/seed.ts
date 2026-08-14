@@ -124,7 +124,7 @@ async function seedOne(term: string): Promise<void> {
   // a single-term niche was never going to hold enough reels to draw a
   // conclusion from. Siblings are also what covers the keywords with no
   // popular feed at all ("fitness"), which used to be skipped outright.
-  const { items: raw, landed, used, counts, failed } = await pullCluster(
+  const { items: raw, landed, used, counts, failed, retryable } = await pullCluster(
     term,
     SEED_LIMIT,
     SEED_TIMEOUT_MS
@@ -137,8 +137,8 @@ async function seedOne(term: string): Promise<void> {
     // A failed run is not an empty feed. Saying "NO FEED" for a keyword that
     // has one sends you looking for a scraping problem that isn't there.
     console.log(
-      failed.length > 0
-        ? `   ALL ${failed.length} RUNS FAILED for "${term}" — retry, this is not a missing feed`
+      retryable
+        ? `   ALL RUNS FAILED for "${term}" and at least one is transient — RETRY, not a missing feed`
         : `   NO FEED for "${term}" or any sibling — skipping`
     );
     return;

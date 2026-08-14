@@ -32,8 +32,10 @@ export interface ClusterPull {
   used: string[];
   /** Per-term counts, for logging. */
   counts: Record<string, number>;
-  /** Terms whose run FAILED, as opposed to returning an empty feed. */
+  /** Terms whose run FAILED, as `term(status)`. 4xx means no feed; 429/5xx is transient. */
   failed: string[];
+  /** True when at least one failure looks transient and is worth retrying. */
+  retryable: boolean;
 }
 
 /**
@@ -58,18 +60,28 @@ export async function pullCluster(
 
   // Bounded, not wide open. Five simultaneous runs exceeded the account's
   // concurrency and the failures came back looking like empty feeds.
-  const results: { t: string; items: ApifyItem[]; ok: boolean }[] = [];
+  const results: {
+    t: string;
+    items: ApifyItem[];
+    ok: boolean;
+    status?: number;
+  }[] = [];
   let next = 0;
   await Promise.all(
     Array.from({ length: Math.min(CLUSTER_CONCURRENCY, terms.length) }, async () => {
       while (next < terms.length) {
         const t = terms[next++];
         try {
-          results.push({ t, items: await runSync(t, limit, timeoutMs), ok: true });
-        } catch {
+          results.push({
+            t,
+            items: await runSync(t, limit, timeoutMs),
+            ok: true,
+          });
+        } catch (err) {
           // One dead keyword must not cost the niche its siblings — but record
           // that it FAILED, so the caller can tell that apart from no feed.
-          results.push({ t, items: [], ok: false });
+          const status = (err as { status?: number }).status ?? 0;
+          results.push({ t, items: [], ok: false, status });
         }
       }
     })
@@ -78,13 +90,18 @@ export async function pullCluster(
   const counts: Record<string, number> = {};
   const used: string[] = [];
   const failed: string[] = [];
+  let retryable = false;
   let items: ApifyItem[] = [];
   // Keep the caller's term order, not completion order.
   for (const t of terms) {
     const r = results.find((x) => x.t === t);
     if (!r) continue;
     if (!r.ok) {
-      failed.push(t);
+      const st = r.status ?? 0;
+      failed.push(`${t}(${st || "err"})`);
+      // 4xx is a settled answer: that keyword has no popular feed. Anything
+      // else — 429, 5xx, a timeout — is worth another go.
+      if (st === 429 || st === 0 || st >= 500) retryable = true;
       continue;
     }
     counts[t] = r.items.length;
@@ -93,5 +110,5 @@ export async function pullCluster(
     items = mergeUnique(items, r.items);
   }
 
-  return { items, landed: term, used, counts, failed };
+  return { items, landed: term, used, counts, failed, retryable };
 }

@@ -63,7 +63,13 @@ export async function runSync(
   // keywords that demonstrably have one — "cooking" returned nothing in its
   // own cluster and 50 items in another minutes later.
   if (!res.ok) {
-    throw new Error(`apify ${res.status} for "${search}"`);
+    // The status is the only signal separating the two failure modes, and they
+    // want opposite responses. 429/5xx is us hitting concurrency and is worth
+    // retrying; 4xx is Instagram having no popular feed for the keyword at all
+    // — which the actor reports as a FAILED run, not an empty dataset.
+    const err = new Error(`apify ${res.status} for "${search}"`);
+    (err as Error & { status?: number }).status = res.status;
+    throw err;
   }
   const items = await res.json();
   return Array.isArray(items) ? items : [];
